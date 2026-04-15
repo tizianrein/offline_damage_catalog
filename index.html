@@ -3,18 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Offline Cube Comments</title>
+  <title>Three Cube Comments</title>
   <meta name="theme-color" content="#ffffff" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <style>
-    :root {
-      --cube-size: 240px;
-      --half-size: 120px;
-      --face-bg: rgba(255,255,255,0.9);
-      --face-border: rgba(0,0,0,0.18);
-      --pin-size: 14px;
-    }
-
     * {
       box-sizing: border-box;
     }
@@ -23,166 +15,94 @@
       margin: 0;
       font-family: Arial, sans-serif;
       background: #f3f4f6;
-      color: #1f2937;
+      color: #111827;
     }
 
     .app {
       display: grid;
-      grid-template-columns: minmax(320px, 1fr) 360px;
-      gap: 20px;
-      padding: 20px;
+      grid-template-columns: 1fr 360px;
       min-height: 100vh;
     }
 
-    .viewer-panel,
-    .side-panel {
-      background: #fff;
-      border-radius: 16px;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
-      padding: 20px;
+    .viewer {
+      position: relative;
+      background: linear-gradient(180deg, #eef2f7 0%, #dde4ec 100%);
+      overflow: hidden;
     }
 
-    .viewer-panel h1,
-    .side-panel h2 {
-      margin-top: 0;
-    }
-
-    .help {
-      font-size: 14px;
-      color: #4b5563;
-      line-height: 1.5;
-      margin-bottom: 12px;
-    }
-
-    .scene-wrap {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .scene {
+    #canvasWrap {
       width: 100%;
-      min-height: 520px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      perspective: 1000px;
-      background:
-        radial-gradient(circle at center, rgba(0,0,0,0.04), transparent 55%);
-      border-radius: 12px;
-      user-select: none;
-      overflow: hidden;
-      position: relative;
+      height: 100vh;
     }
 
-    .cube {
-      width: var(--cube-size);
-      height: var(--cube-size);
-      position: relative;
-      transform-style: preserve-3d;
-      transform: rotateX(-20deg) rotateY(28deg);
-      cursor: grab;
-    }
-
-    .cube.dragging {
-      cursor: grabbing;
-    }
-
-    .face {
+    .topbar {
       position: absolute;
-      width: var(--cube-size);
-      height: var(--cube-size);
-      border: 1px solid var(--face-border);
-      background:
-        linear-gradient(135deg, rgba(255,255,255,0.98), rgba(235,235,235,0.92));
-      display: block;
-      overflow: hidden;
-      touch-action: none;
-    }
-
-    .face::after {
-      content: attr(data-face);
-      position: absolute;
-      left: 10px;
-      top: 10px;
-      font-size: 12px;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-
-    .face.front  { transform: translateZ(var(--half-size)); }
-    .face.back   { transform: rotateY(180deg) translateZ(var(--half-size)); }
-    .face.right  { transform: rotateY(90deg) translateZ(var(--half-size)); }
-    .face.left   { transform: rotateY(-90deg) translateZ(var(--half-size)); }
-    .face.top    { transform: rotateX(90deg) translateZ(var(--half-size)); }
-    .face.bottom { transform: rotateX(-90deg) translateZ(var(--half-size)); }
-
-    .pin {
-      position: absolute;
-      width: var(--pin-size);
-      height: var(--pin-size);
-      border-radius: 50%;
-      background: #e11d48;
-      border: 2px solid #fff;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.18);
-      transform: translate(-50%, -50%);
-      cursor: pointer;
-    }
-
-    .pin:hover {
-      transform: translate(-50%, -50%) scale(1.12);
-    }
-
-    .controls {
+      left: 16px;
+      top: 16px;
+      z-index: 20;
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      justify-content: center;
+      max-width: calc(100% - 32px);
     }
 
-    button {
+    .topbar button {
       border: none;
-      background: #111827;
+      background: rgba(17, 24, 39, 0.92);
       color: white;
-      padding: 12px 14px;
+      padding: 10px 12px;
       border-radius: 10px;
       cursor: pointer;
       font-size: 14px;
     }
 
-    button.secondary {
-      background: #6b7280;
+    .topbar button.secondary {
+      background: rgba(107, 114, 128, 0.92);
     }
 
-    button.danger {
-      background: #b91c1c;
+    .topbar button.danger {
+      background: rgba(185, 28, 28, 0.92);
     }
 
     .status {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      z-index: 20;
+      background: rgba(255,255,255,0.92);
+      border-radius: 10px;
+      padding: 10px 12px;
       font-size: 14px;
-      color: #374151;
-      min-height: 20px;
+      max-width: 520px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.08);
     }
 
-    .meta-box {
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 14px;
-      margin-bottom: 16px;
+    .sidebar {
+      background: white;
+      border-left: 1px solid #e5e7eb;
+      padding: 18px;
+      overflow: auto;
+    }
+
+    .sidebar h2 {
+      margin-top: 0;
+    }
+
+    .hint {
       font-size: 14px;
       line-height: 1.5;
+      color: #4b5563;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      padding: 12px;
+      border-radius: 12px;
+      margin-bottom: 16px;
     }
 
     .entry-list {
       display: flex;
       flex-direction: column;
       gap: 12px;
-      max-height: 520px;
-      overflow: auto;
-      padding-right: 4px;
     }
 
     .entry {
@@ -200,20 +120,29 @@
     .entry .small {
       color: #6b7280;
       font-size: 13px;
+      line-height: 1.45;
       margin-bottom: 8px;
-      line-height: 1.4;
     }
 
     .entry .actions {
-      margin-top: 10px;
       display: flex;
-      gap: 8px;
       flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
     }
 
     .entry .actions button {
+      border: none;
+      border-radius: 8px;
       padding: 8px 10px;
+      cursor: pointer;
+      color: white;
+      background: #374151;
       font-size: 13px;
+    }
+
+    .entry .actions button.danger {
+      background: #b91c1c;
     }
 
     .empty {
@@ -226,57 +155,44 @@
         grid-template-columns: 1fr;
       }
 
-      .scene {
-        min-height: 420px;
+      .sidebar {
+        border-left: none;
+        border-top: 1px solid #e5e7eb;
+      }
+
+      #canvasWrap {
+        height: 68vh;
       }
     }
   </style>
 </head>
 <body>
   <div class="app">
-    <section class="viewer-panel">
-      <h1>Offline Cube Comments</h1>
-      <div class="help">
-        Würfel mit der Maus oder per Touch drehen. Auf eine Fläche klicken oder tippen, um einen Kommentar zu setzen.
-        Gespeichert werden Fläche sowie normierte Koordinaten <code>u</code> und <code>v</code> zwischen 0 und 1.
+    <section class="viewer">
+      <div class="topbar">
+        <button id="resetViewBtn" type="button">Ansicht zurücksetzen</button>
+        <button id="exportBtn" type="button" class="secondary">JSON exportieren</button>
+        <button id="clearBtn" type="button" class="danger">Alle löschen</button>
       </div>
 
-      <div class="scene-wrap">
-        <div class="scene" id="scene">
-          <div class="cube" id="cube">
-            <div class="face front" data-face="front"></div>
-            <div class="face back" data-face="back"></div>
-            <div class="face right" data-face="right"></div>
-            <div class="face left" data-face="left"></div>
-            <div class="face top" data-face="top"></div>
-            <div class="face bottom" data-face="bottom"></div>
-          </div>
-        </div>
-
-        <div class="controls">
-          <button id="resetViewBtn" type="button">Ansicht zurücksetzen</button>
-          <button id="exportBtn" type="button" class="secondary">JSON exportieren</button>
-          <button id="clearBtn" type="button" class="danger">Alle Kommentare löschen</button>
-        </div>
-
-        <div class="status" id="status"></div>
-      </div>
+      <div id="canvasWrap"></div>
+      <div class="status" id="status">Bereit. Auf eine Würfelfläche klicken, um einen Kommentar zu setzen.</div>
     </section>
 
-    <aside class="side-panel">
-      <h2>Gespeicherte Kommentare</h2>
-
-      <div class="meta-box">
-        <div><strong>Koordinatensystem</strong></div>
-        <div><code>u</code>: links 0 bis rechts 1</div>
-        <div><code>v</code>: oben 0 bis unten 1</div>
-        <div>Beispiel: <code>front, u=0.34, v=0.71</code></div>
+    <aside class="sidebar">
+      <h2>Kommentare</h2>
+      <div class="hint">
+        Gespeichert werden:
+        <br>• Face
+        <br>• UV-Koordinate auf der Fläche
+        <br>• 3D-Punkt auf dem Würfel
+        <br>• Kommentar
+        <br>• Zeitstempel
       </div>
-
       <div class="entry-list" id="entries"></div>
     </aside>
   </div>
 
-  <script src="./app.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>

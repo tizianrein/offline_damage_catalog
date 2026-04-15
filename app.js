@@ -1,41 +1,79 @@
-const STORAGE_KEY = "offline-cube-comments-v1";
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/controls/OrbitControls.js';
+import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/webxr/VRButton.js';
 
-const cube = document.getElementById("cube");
-const entriesEl = document.getElementById("entries");
-const statusEl = document.getElementById("status");
-const exportBtn = document.getElementById("exportBtn");
-const clearBtn = document.getElementById("clearBtn");
-const resetViewBtn = document.getElementById("resetViewBtn");
+const STORAGE_KEY = 'three-cube-comments-v1';
 
-let rotationX = -20;
-let rotationY = 28;
+const canvasWrap = document.getElementById('canvasWrap');
+const entriesEl = document.getElementById('entries');
+const statusEl = document.getElementById('status');
+const exportBtn = document.getElementById('exportBtn');
+const clearBtn = document.getElementById('clearBtn');
+const resetViewBtn = document.getElementById('resetViewBtn');
 
-let isDragging = false;
-let dragMoved = false;
-let startX = 0;
-let startY = 0;
-let startRotationX = rotationX;
-let startRotationY = rotationY;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe9eef5);
+
+const camera = new THREE.PerspectiveCamera(
+  50,
+  canvasWrap.clientWidth / canvasWrap.clientHeight,
+  0.1,
+  100
+);
+camera.position.set(2.4, 1.8, 2.8);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(canvasWrap.clientWidth, canvasWrap.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.xr.enabled = true;
+canvasWrap.appendChild(renderer.domElement);
+
+document.body.appendChild(VRButton.createButton(renderer));
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(0, 0, 0);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+scene.add(ambient);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+dirLight.position.set(3, 4, 5);
+scene.add(dirLight);
+
+const grid = new THREE.GridHelper(8, 16, 0x9ca3af, 0xd1d5db);
+grid.position.y = -0.501;
+scene.add(grid);
+
+const cubeGeometry = new THREE.BoxGeometry(1, 1, 1);
+const cubeMaterial = [
+  new THREE.MeshStandardMaterial({ color: 0xfca5a5 }),
+  new THREE.MeshStandardMaterial({ color: 0xfdba74 }),
+  new THREE.MeshStandardMaterial({ color: 0xfde68a }),
+  new THREE.MeshStandardMaterial({ color: 0x86efac }),
+  new THREE.MeshStandardMaterial({ color: 0x93c5fd }),
+  new THREE.MeshStandardMaterial({ color: 0xc4b5fd })
+];
+
+const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+scene.add(cube);
+
+const edgeLines = new THREE.LineSegments(
+  new THREE.EdgesGeometry(cubeGeometry),
+  new THREE.LineBasicMaterial({ color: 0x111827 })
+);
+cube.add(edgeLines);
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+
+const markersGroup = new THREE.Group();
+scene.add(markersGroup);
+
+const faceNames = ['right', 'left', 'top', 'bottom', 'front', 'back'];
 
 function setStatus(message) {
   statusEl.textContent = message;
-}
-
-function formatNumber(value) {
-  return Number(value).toFixed(3);
-}
-
-function formatDate(isoString) {
-  return new Date(isoString).toLocaleString("de-DE");
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
 
 function getEntries() {
@@ -44,7 +82,7 @@ function getEntries() {
   try {
     return JSON.parse(raw);
   } catch (error) {
-    console.error("Fehler beim Lesen der Einträge:", error);
+    console.error(error);
     return [];
   }
 }
@@ -53,44 +91,78 @@ function saveEntries(entries) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
 }
 
-function updateCubeTransform() {
-  cube.style.transform = `rotateX(${rotationX}deg) rotateY(${rotationY}deg)`;
+function formatDate(isoString) {
+  return new Date(isoString).toLocaleString('de-DE');
+}
+
+function fmt(value) {
+  return Number(value).toFixed(3);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function createId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function renderPins() {
-  document.querySelectorAll(".pin").forEach((pin) => pin.remove());
+function inferFaceName(faceIndex) {
+  if (faceIndex == null) return 'unknown';
+  const materialIndex = Math.floor(faceIndex / 2);
+  return faceNames[materialIndex] || 'unknown';
+}
 
-  const entries = getEntries();
+function uvToSafeObject(intersection) {
+  return {
+    u: intersection.uv ? intersection.uv.x : null,
+    v: intersection.uv ? 1 - intersection.uv.y : null
+  };
+}
 
-  entries.forEach((entry) => {
-    const faceEl = document.querySelector(`.face.${entry.face}`);
-    if (!faceEl) return;
+function pointToObject(point) {
+  return {
+    x: Number(point.x.toFixed(4)),
+    y: Number(point.y.toFixed(4)),
+    z: Number(point.z.toFixed(4))
+  };
+}
 
-    const pin = document.createElement("button");
-    pin.type = "button";
-    pin.className = "pin";
-    pin.style.left = `${entry.u * 100}%`;
-    pin.style.top = `${entry.v * 100}%`;
-    pin.title = entry.text;
-    pin.dataset.id = entry.id;
+function clearMarkers() {
+  while (markersGroup.children.length > 0) {
+    const child = markersGroup.children[0];
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+    markersGroup.remove(child);
+  }
+}
 
-    pin.addEventListener("click", (event) => {
-      event.stopPropagation();
-      highlightEntry(entry.id);
-      const deleteIt = window.confirm(
-        `Kommentar:\n\n${entry.text}\n\nFläche: ${entry.face}\nu: ${formatNumber(entry.u)}\nv: ${formatNumber(entry.v)}\n\nDiesen Kommentar löschen?`
-      );
-      if (deleteIt) {
-        deleteEntry(entry.id);
-      }
-    });
-
-    faceEl.appendChild(pin);
+function createMarker(entry) {
+  const geometry = new THREE.SphereGeometry(0.035, 16, 16);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xbe123c,
+    emissive: 0x3f0012
   });
+  const marker = new THREE.Mesh(geometry, material);
+
+  const direction = new THREE.Vector3(entry.point.x, entry.point.y, entry.point.z)
+    .normalize()
+    .multiplyScalar(0.54);
+
+  marker.position.copy(direction);
+  marker.userData.entryId = entry.id;
+  markersGroup.add(marker);
+}
+
+function renderMarkers() {
+  clearMarkers();
+  const entries = getEntries();
+  entries.forEach(createMarker);
 }
 
 function renderEntries() {
@@ -105,210 +177,177 @@ function renderEntries() {
     <div class="entry" id="entry-${entry.id}">
       <strong>${escapeHtml(entry.face)}</strong>
       <div class="small">
-        u = ${formatNumber(entry.u)}<br>
-        v = ${formatNumber(entry.v)}<br>
+        u = ${fmt(entry.uv.u)}<br>
+        v = ${fmt(entry.uv.v)}<br>
+        x = ${fmt(entry.point.x)}, y = ${fmt(entry.point.y)}, z = ${fmt(entry.point.z)}<br>
         ${formatDate(entry.createdAt)}
       </div>
-      <div>${escapeHtml(entry.text).replace(/\n/g, "<br>")}</div>
+      <div>${escapeHtml(entry.text).replace(/\n/g, '<br>')}</div>
       <div class="actions">
-        <button type="button" class="secondary locate-btn" data-id="${entry.id}">Markierung finden</button>
+        <button type="button" class="locate-btn" data-id="${entry.id}">Im Viewer finden</button>
         <button type="button" class="danger delete-btn" data-id="${entry.id}">Löschen</button>
       </div>
     </div>
-  `).join("");
+  `).join('');
 
-  document.querySelectorAll(".locate-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      highlightEntry(id);
-    });
+  document.querySelectorAll('.locate-btn').forEach((btn) => {
+    btn.addEventListener('click', () => focusEntry(btn.dataset.id));
   });
 
-  document.querySelectorAll(".delete-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      deleteEntry(id);
-    });
+  document.querySelectorAll('.delete-btn').forEach((btn) => {
+    btn.addEventListener('click', () => deleteEntry(btn.dataset.id));
   });
 }
 
-function highlightEntry(id) {
-  document.querySelectorAll(".entry").forEach((el) => {
-    el.style.outline = "none";
-    el.style.background = "#fafafa";
+function focusEntry(id) {
+  document.querySelectorAll('.entry').forEach((el) => {
+    el.style.outline = 'none';
+    el.style.background = '#fafafa';
   });
 
   const target = document.getElementById(`entry-${id}`);
   if (target) {
-    target.style.outline = "2px solid #111827";
-    target.style.background = "#f3f4f6";
-    target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    target.style.outline = '2px solid #111827';
+    target.style.background = '#f3f4f6';
+    target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
+
+  const entry = getEntries().find((item) => item.id === id);
+  if (!entry) return;
+
+  controls.target.set(0, 0, 0);
+  camera.position.set(
+    entry.point.x * 3.2,
+    entry.point.y * 3.2 + 0.4,
+    entry.point.z * 3.2
+  );
+  setStatus(`Kommentar auf ${entry.face} fokussiert.`);
 }
 
-function addCommentToFace(faceEl, clientX, clientY) {
-  const rect = faceEl.getBoundingClientRect();
-  let u = (clientX - rect.left) / rect.width;
-  let v = (clientY - rect.top) / rect.height;
-
-  u = Math.max(0, Math.min(1, u));
-  v = Math.max(0, Math.min(1, v));
+function addEntryFromIntersection(intersection) {
+  const face = inferFaceName(intersection.faceIndex);
+  const uv = uvToSafeObject(intersection);
+  const point = pointToObject(intersection.point);
 
   const text = window.prompt(
-    `Kommentar für Fläche "${faceEl.dataset.face}" eingeben:\n\nu=${formatNumber(u)}, v=${formatNumber(v)}`
+    `Kommentar für Fläche "${face}" eingeben:\n\nu=${fmt(uv.u)}, v=${fmt(uv.v)}`
   );
 
   if (!text || !text.trim()) {
-    setStatus("Kein Kommentar gespeichert.");
+    setStatus('Kein Kommentar gespeichert.');
     return;
   }
 
   const entries = getEntries();
   entries.push({
     id: createId(),
-    face: faceEl.dataset.face,
-    u,
-    v,
+    face,
+    uv,
+    point,
     text: text.trim(),
     createdAt: new Date().toISOString()
   });
 
   saveEntries(entries);
-  renderPins();
+  renderMarkers();
   renderEntries();
-  setStatus(`Kommentar auf ${faceEl.dataset.face} gespeichert.`);
+  setStatus(`Kommentar auf ${face} gespeichert.`);
 }
 
 function deleteEntry(id) {
   const entries = getEntries().filter((entry) => entry.id !== id);
   saveEntries(entries);
-  renderPins();
+  renderMarkers();
   renderEntries();
-  setStatus("Kommentar gelöscht.");
+  setStatus('Kommentar gelöscht.');
 }
 
 function exportEntries() {
   const entries = getEntries();
 
   if (entries.length === 0) {
-    setStatus("Keine Daten zum Exportieren vorhanden.");
+    setStatus('Keine Daten zum Exportieren vorhanden.');
     return;
   }
 
   const payload = {
     model: {
-      type: "unit-cube",
+      type: 'unit-cube',
       size: [1, 1, 1]
-    },
-    coordinateSystem: {
-      perFace: true,
-      u: "0..1 left-to-right",
-      v: "0..1 top-to-bottom"
     },
     comments: entries
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json"
+    type: 'application/json'
   });
 
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
-  a.download = "cube-comments.json";
+  a.download = 'three-cube-comments.json';
   a.click();
   URL.revokeObjectURL(url);
 
-  setStatus("JSON exportiert.");
+  setStatus('JSON exportiert.');
 }
 
-function clearAllEntries() {
-  const confirmed = window.confirm("Wirklich alle Kommentare löschen?");
+function clearAll() {
+  const confirmed = window.confirm('Wirklich alle Kommentare löschen?');
   if (!confirmed) return;
 
   localStorage.removeItem(STORAGE_KEY);
-  renderPins();
+  renderMarkers();
   renderEntries();
-  setStatus("Alle Kommentare gelöscht.");
+  setStatus('Alle Kommentare gelöscht.');
 }
 
-function onPointerDown(event) {
-  isDragging = true;
-  dragMoved = false;
-  cube.classList.add("dragging");
+function onPointerClick(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-  startX = event.clientX;
-  startY = event.clientY;
-  startRotationX = rotationX;
-  startRotationY = rotationY;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObject(cube, false);
 
-  cube.setPointerCapture(event.pointerId);
-}
-
-function onPointerMove(event) {
-  if (!isDragging) return;
-
-  const dx = event.clientX - startX;
-  const dy = event.clientY - startY;
-
-  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-    dragMoved = true;
-  }
-
-  rotationY = startRotationY + dx * 0.45;
-  rotationX = startRotationX - dy * 0.45;
-
-  rotationX = Math.max(-89, Math.min(89, rotationX));
-
-  updateCubeTransform();
-}
-
-function onPointerUp(event) {
-  if (!isDragging) return;
-  isDragging = false;
-  cube.classList.remove("dragging");
-
-  try {
-    cube.releasePointerCapture(event.pointerId);
-  } catch (error) {
-    // ignore
+  if (hits.length > 0) {
+    addEntryFromIntersection(hits[0]);
   }
 }
 
-cube.addEventListener("pointerdown", onPointerDown);
-cube.addEventListener("pointermove", onPointerMove);
-cube.addEventListener("pointerup", onPointerUp);
-cube.addEventListener("pointercancel", onPointerUp);
-cube.addEventListener("pointerleave", onPointerUp);
+function resetView() {
+  camera.position.set(2.4, 1.8, 2.8);
+  controls.target.set(0, 0, 0);
+  controls.update();
+  setStatus('Ansicht zurückgesetzt.');
+}
 
-document.querySelectorAll(".face").forEach((faceEl) => {
-  faceEl.addEventListener("click", (event) => {
-    if (dragMoved) return;
-    addCommentToFace(faceEl, event.clientX, event.clientY);
-  });
+renderer.domElement.addEventListener('click', onPointerClick);
+exportBtn.addEventListener('click', exportEntries);
+clearBtn.addEventListener('click', clearAll);
+resetViewBtn.addEventListener('click', resetView);
+
+window.addEventListener('resize', () => {
+  camera.aspect = canvasWrap.clientWidth / canvasWrap.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(canvasWrap.clientWidth, canvasWrap.clientHeight);
 });
 
-resetViewBtn.addEventListener("click", () => {
-  rotationX = -20;
-  rotationY = 28;
-  updateCubeTransform();
-  setStatus("Ansicht zurückgesetzt.");
-});
-
-exportBtn.addEventListener("click", exportEntries);
-clearBtn.addEventListener("click", clearAllEntries);
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", async () => {
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
     try {
-      await navigator.serviceWorker.register("./sw.js");
-      console.log("Service Worker registriert");
+      await navigator.serviceWorker.register('./sw.js');
+      console.log('Service Worker registriert');
     } catch (error) {
-      console.error("Service Worker Registrierung fehlgeschlagen:", error);
+      console.error('SW Registrierung fehlgeschlagen:', error);
     }
   });
 }
 
-updateCubeTransform();
-renderPins();
+renderMarkers();
 renderEntries();
+
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
