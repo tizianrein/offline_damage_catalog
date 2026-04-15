@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exkursion Kommentare</title>
+  <meta name="theme-color" content="#ffffff" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f5f5f5;
+      color: #222;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 28px;
+    }
+
+    p.info {
+      background: #eef6ff;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    label {
+      display: block;
+      margin-top: 14px;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    input, textarea, button {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    .actions button {
+      width: auto;
+      cursor: pointer;
+      border: none;
+      background: #222;
+      color: white;
+      padding: 12px 16px;
+    }
+
+    .actions button.secondary {
+      background: #777;
+    }
+
+    .actions button.danger {
+      background: #b42318;
+    }
+
+    .status {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #444;
+    }
+
+    .entry {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 14px;
+      margin-top: 14px;
+      background: #fafafa;
+    }
+
+    .entry h3 {
+      margin: 0 0 8px 0;
+      font-size: 18px;
+    }
+
+    .meta {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    .empty {
+      color: #777;
+      margin-top: 16px;
+    }
+
+    @media (max-width: 640px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Exkursion Kommentare</h1>
+    <p class="info">
+      Diese Seite kann offline genutzt werden. Kommentare werden lokal auf dem Gerät gespeichert.
+    </p>
+
+    <form id="commentForm">
+      <div class="row">
+        <div>
+          <label for="studentName">Name</label>
+          <input id="studentName" name="studentName" type="text" placeholder="z. B. Anna" required />
+        </div>
+        <div>
+          <label for="objectId">Objekt / Ort</label>
+          <input id="objectId" name="objectId" type="text" placeholder="z. B. Hütte Nordwand" required />
+        </div>
+      </div>
+
+      <label for="commentText">Kommentar</label>
+      <textarea id="commentText" name="commentText" placeholder="Beobachtung, Zustand, Idee, Notiz ..." required></textarea>
+
+      <div class="actions">
+        <button type="submit">Kommentar speichern</button>
+        <button type="button" class="secondary" id="exportBtn">Als JSON exportieren</button>
+        <button type="button" class="danger" id="clearBtn">Alle löschen</button>
+      </div>
+    </form>
+
+    <div class="status" id="status"></div>
+
+    <h2>Gespeicherte Kommentare</h2>
+    <div id="entries"></div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
