@@ -1,11 +1,13 @@
-const CACHE_NAME = "cube-comments-cache-v3";
+// Version erhöht um den alten defekten Cache zu verwerfen
+const CACHE_NAME = "cube-comments-cache-v4";
 
 const FILES_TO_CACHE = [
   "./",
   "./index.html",
   "./app.js",
   "./manifest.webmanifest",
-  "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"
+  // Auf module.js statt min.js aktualisiert
+  "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js" 
 ];
 
 self.addEventListener("install", (event) => {

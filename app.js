@@ -1,3 +1,6 @@
+// Importiere Three.js als Modul ganz oben
+import * as THREE from 'three';
+
 const STORAGE_KEY = "cube-comments-v3";
 
 const canvasWrap = document.getElementById("canvasWrap");
