@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Three Cube Comments</title>
+  <title>Cube Comments</title>
   <meta name="theme-color" content="#ffffff" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <style>
@@ -20,13 +20,13 @@
 
     .app {
       display: grid;
-      grid-template-columns: 1fr 360px;
+      grid-template-columns: 1fr 320px;
       min-height: 100vh;
     }
 
     .viewer {
       position: relative;
-      background: linear-gradient(180deg, #eef2f7 0%, #dde4ec 100%);
+      background: #e5e7eb;
       overflow: hidden;
     }
 
@@ -37,44 +37,43 @@
 
     .topbar {
       position: absolute;
-      left: 16px;
       top: 16px;
-      z-index: 20;
+      left: 16px;
+      z-index: 10;
       display: flex;
-      flex-wrap: wrap;
       gap: 10px;
-      max-width: calc(100% - 32px);
+      flex-wrap: wrap;
     }
 
     .topbar button {
       border: none;
-      background: rgba(17, 24, 39, 0.92);
-      color: white;
-      padding: 10px 12px;
       border-radius: 10px;
+      padding: 10px 12px;
+      color: white;
       cursor: pointer;
+      background: #1f2937;
       font-size: 14px;
     }
 
-    .topbar button.secondary {
-      background: rgba(107, 114, 128, 0.92);
+    .topbar .secondary {
+      background: #6b7280;
     }
 
-    .topbar button.danger {
-      background: rgba(185, 28, 28, 0.92);
+    .topbar .danger {
+      background: #b91c1c;
     }
 
     .status {
       position: absolute;
       left: 16px;
       bottom: 16px;
-      z-index: 20;
-      background: rgba(255,255,255,0.92);
+      z-index: 10;
+      background: rgba(255,255,255,0.95);
       border-radius: 10px;
       padding: 10px 12px;
       font-size: 14px;
-      max-width: 520px;
       box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+      max-width: 520px;
     }
 
     .sidebar {
@@ -90,12 +89,12 @@
 
     .hint {
       font-size: 14px;
-      line-height: 1.5;
       color: #4b5563;
+      line-height: 1.5;
       background: #f9fafb;
       border: 1px solid #e5e7eb;
-      padding: 12px;
       border-radius: 12px;
+      padding: 12px;
       margin-bottom: 16px;
     }
 
@@ -126,8 +125,8 @@
 
     .entry .actions {
       display: flex;
-      flex-wrap: wrap;
       gap: 8px;
+      flex-wrap: wrap;
       margin-top: 10px;
     }
 
@@ -141,7 +140,7 @@
       font-size: 13px;
     }
 
-    .entry .actions button.danger {
+    .entry .actions .danger {
       background: #b91c1c;
     }
 
@@ -150,7 +149,7 @@
       font-size: 14px;
     }
 
-    @media (max-width: 980px) {
+    @media (max-width: 900px) {
       .app {
         grid-template-columns: 1fr;
       }
@@ -161,7 +160,7 @@
       }
 
       #canvasWrap {
-        height: 68vh;
+        height: 70vh;
       }
     }
   </style>
@@ -176,7 +175,7 @@
       </div>
 
       <div id="canvasWrap"></div>
-      <div class="status" id="status">Bereit. Auf eine Würfelfläche klicken, um einen Kommentar zu setzen.</div>
+      <div class="status" id="status">Bereit. Würfel drehen oder auf eine Fläche klicken, um einen Kommentar zu setzen.</div>
     </section>
 
     <aside class="sidebar">
@@ -193,6 +192,7 @@
     </aside>
   </div>
 
-  <script type="module" src="./app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
