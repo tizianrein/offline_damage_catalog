@@ -1,5 +1,4 @@
-const CACHE_NAME = "exkursion-cache-v1";
-
+const CACHE_NAME = "offline-cube-cache-v1";
 const FILES_TO_CACHE = [
   "./",
   "./index.html",
