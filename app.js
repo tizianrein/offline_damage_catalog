@@ -1,4 +1,3 @@
-// Importiere Three.js als Modul ganz oben
 import * as THREE from 'three';
 
 const STORAGE_KEY = "cube-comments-v3";
@@ -49,6 +48,9 @@ function createId() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// -----------------------------------------------------
+// 1. THREE.JS SETUP
+// -----------------------------------------------------
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe5e7eb);
 
@@ -98,14 +100,26 @@ const edges = new THREE.LineSegments(
 );
 cube.add(edges);
 
+// Start-Rotation
 cubeGroup.rotation.x = -0.45;
 cubeGroup.rotation.y = 0.65;
 
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
+// Marker-Gruppen
 const markersGroup = new THREE.Group();
 cubeGroup.add(markersGroup);
 
+// --- NEU: Der Vorschau-Marker (Blau) ---
+const previewMaterial = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x1e3a8a });
+const previewMarker = new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 16), previewMaterial);
+previewMarker.visible = false;
+cubeGroup.add(previewMarker); // Direkt an die cubeGroup hängen, nicht an markersGroup!
+
+
+// -----------------------------------------------------
+// 2. LOGIK
+// -----------------------------------------------------
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
 const faceNames = ["right", "left", "top", "bottom", "front", "back"];
 
 function inferFaceName(faceIndex) {
@@ -137,19 +151,17 @@ function renderMarkers() {
   for (const entry of entries) {
     const geometry = new THREE.SphereGeometry(0.035, 16, 16);
     const material = new THREE.MeshStandardMaterial({
-      color: 0xbe123c,
+      color: 0xbe123c, // Rote Farbe für feste Marker
       emissive: 0x3f0012
     });
 
     const marker = new THREE.Mesh(geometry, material);
+    
+    // Einfach die Koordinaten setzen. Die exakte Position (inkl. Abstand zur Fläche)
+    // haben wir jetzt schon beim Erstellen des Kommentars berechnet.
     marker.position.set(entry.point.x, entry.point.y, entry.point.z);
-
-    const outward = new THREE.Vector3(entry.point.x, entry.point.y, entry.point.z)
-      .normalize()
-      .multiplyScalar(0.04);
-
-    marker.position.add(outward);
     marker.userData.entryId = entry.id;
+    
     markersGroup.add(marker);
   }
 }
@@ -173,66 +185,76 @@ function renderEntries() {
       </div>
       <div>${escapeHtml(entry.text).replace(/\n/g, "<br>")}</div>
       <div class="actions">
-        <button type="button" class="locate-btn" data-id="${entry.id}">Im Viewer finden</button>
         <button type="button" class="danger delete-btn" data-id="${entry.id}">Löschen</button>
       </div>
     </div>
   `).join("");
-
-  document.querySelectorAll(".locate-btn").forEach((btn) => {
-    btn.addEventListener("click", () => focusEntry(btn.dataset.id));
-  });
 
   document.querySelectorAll(".delete-btn").forEach((btn) => {
     btn.addEventListener("click", () => deleteEntry(btn.dataset.id));
   });
 }
 
-function focusEntry(id) {
-  const entry = getEntries().find((item) => item.id === id);
-  if (!entry) return;
-
-  setStatus(`Kommentar auf ${entry.face} markiert.`);
-}
-
-function addEntryFromIntersection(intersection) {
+function handlePreviewAndPrompt(intersection) {
   const face = inferFaceName(intersection.faceIndex);
   const uv = {
     u: intersection.uv ? intersection.uv.x : 0,
     v: intersection.uv ? 1 - intersection.uv.y : 0
   };
-  
-  // WICHTIG: Den Punkt vom Welt- in den lokalen Raum des Würfels umwandeln!
-  // Wir klonen den Punkt zuerst, da worldToLocal das Originalobjekt verändert.
+
+  // 1. Punkt in die lokale Welt des Würfels umwandeln
   const localPoint = intersection.point.clone();
-  cube.worldToLocal(localPoint);
-  
-  const point = pointToObject(localPoint);
+  cubeGroup.worldToLocal(localPoint);
 
-  const text = window.prompt(
-    `Kommentar für Fläche "${face}" eingeben:\n\nu=${fmt(uv.u)}, v=${fmt(uv.v)}`
-  );
+  // 2. Den Punkt exakt im 90° Winkel aus der Fläche herausziehen (damit er nicht im Würfel steckt)
+  // intersection.face.normal gibt uns exakt die Blickrichtung der Fläche!
+  const normalOffset = intersection.face.normal.clone().multiplyScalar(0.04);
+  localPoint.add(normalOffset);
 
-  if (!text || !text.trim()) {
-    setStatus("Kein Kommentar gespeichert.");
-    return;
-  }
+  // 3. Vorschau-Marker an diese Position setzen und anzeigen
+  previewMarker.position.copy(localPoint);
+  previewMarker.visible = true;
 
-  const entries = getEntries();
-  entries.push({
-    id: createId(),
-    face,
-    uv,
-    point,
-    text: text.trim(),
-    createdAt: new Date().toISOString()
-  });
+  // 4. Einmal manuell rendern, damit der blaue Punkt sofort sichtbar wird,
+  // BEVOR der window.prompt den Browser blockiert.
+  renderer.render(scene, camera);
 
-  saveEntries(entries);
-  renderMarkers();
-  renderEntries();
-  setStatus(`Kommentar auf ${face} gespeichert.`);
+  // 5. Einen winzigen Moment warten, damit der Browser Zeit hat, das Bild zu zeichnen
+  setTimeout(() => {
+    const text = window.prompt(
+      `Vorschau erstellt! (Blauer Punkt)\nKommentar für Fläche "${face}" eingeben:\n\nu=${fmt(uv.u)}, v=${fmt(uv.v)}`
+    );
+
+    // Wenn der Nutzer auf "Abbrechen" klickt oder nichts eingibt
+    if (!text || !text.trim()) {
+      previewMarker.visible = false;
+      setStatus("Aktion abgebrochen. Kein Kommentar gespeichert.");
+      return; // Wir brechen hier ab
+    }
+
+    // Wenn ein Text eingegeben wurde: Speichern!
+    const point = pointToObject(localPoint);
+    const entries = getEntries();
+    
+    entries.push({
+      id: createId(),
+      face,
+      uv,
+      point,
+      text: text.trim(),
+      createdAt: new Date().toISOString()
+    });
+
+    saveEntries(entries);
+    
+    // Vorschau verstecken und finale (rote) Marker neu rendern
+    previewMarker.visible = false;
+    renderMarkers();
+    renderEntries();
+    setStatus(`Kommentar auf ${face} gespeichert.`);
+  }, 50);
 }
+
 function deleteEntry(id) {
   const entries = getEntries().filter((entry) => entry.id !== id);
   saveEntries(entries);
@@ -250,17 +272,11 @@ function exportEntries() {
   }
 
   const payload = {
-    model: {
-      type: "unit-cube",
-      size: [1, 1, 1]
-    },
+    model: { type: "unit-cube", size: [1, 1, 1] },
     comments: entries
   };
 
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json"
-  });
-
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -281,6 +297,9 @@ function clearAll() {
   setStatus("Alle Kommentare gelöscht.");
 }
 
+// -----------------------------------------------------
+// 3. EVENT LISTENERS
+// -----------------------------------------------------
 let isDragging = false;
 let dragMoved = false;
 let startX = 0;
@@ -321,7 +340,7 @@ renderer.domElement.addEventListener("pointerleave", endDrag);
 renderer.domElement.addEventListener("pointercancel", endDrag);
 
 renderer.domElement.addEventListener("click", (event) => {
-  if (dragMoved) return;
+  if (dragMoved) return; // Wenn der User nur gedreht hat, brechen wir hier ab
 
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -331,7 +350,7 @@ renderer.domElement.addEventListener("click", (event) => {
   const hits = raycaster.intersectObject(cube, false);
 
   if (hits.length > 0) {
-    addEntryFromIntersection(hits[0]);
+    handlePreviewAndPrompt(hits[0]); // Ruft die neue Vorschau-Logik auf
   }
 });
 
@@ -352,22 +371,11 @@ window.addEventListener("resize", () => {
   renderer.setSize(width, height);
 });
 
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", async () => {
-    try {
-      await navigator.serviceWorker.register("./sw.js");
-      console.log("Service Worker registriert");
-    } catch (error) {
-      console.error("SW Registrierung fehlgeschlagen:", error);
-    }
-  });
-}
-
+// Initiale Render-Aufrufe
 renderMarkers();
 renderEntries();
 
 function animate() {
   renderer.render(scene, camera);
 }
-
 renderer.setAnimationLoop(animate);
