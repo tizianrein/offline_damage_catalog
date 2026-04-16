@@ -201,7 +201,13 @@ function addEntryFromIntersection(intersection) {
     u: intersection.uv ? intersection.uv.x : 0,
     v: intersection.uv ? 1 - intersection.uv.y : 0
   };
-  const point = pointToObject(intersection.point);
+  
+  // WICHTIG: Den Punkt vom Welt- in den lokalen Raum des Würfels umwandeln!
+  // Wir klonen den Punkt zuerst, da worldToLocal das Originalobjekt verändert.
+  const localPoint = intersection.point.clone();
+  cube.worldToLocal(localPoint);
+  
+  const point = pointToObject(localPoint);
 
   const text = window.prompt(
     `Kommentar für Fläche "${face}" eingeben:\n\nu=${fmt(uv.u)}, v=${fmt(uv.v)}`
@@ -227,7 +233,6 @@ function addEntryFromIntersection(intersection) {
   renderEntries();
   setStatus(`Kommentar auf ${face} gespeichert.`);
 }
-
 function deleteEntry(id) {
   const entries = getEntries().filter((entry) => entry.id !== id);
   saveEntries(entries);
