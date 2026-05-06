@@ -1435,10 +1435,14 @@ setStatus(state.damages.length
   : 'Bereit. Suche Standardmodell …');
 
 // Try to auto-load a default model from the same directory.
-// Silent fallback: if it doesn't exist, the empty-state stays visible
-// and the user can load via button / drag-drop.
+// If it doesn't exist (404), the empty-state stays visible and
+// the user can load via button / drag-drop. We log clearly to
+// the console so debugging works.
 loadGltfFromUrl(DEFAULT_MODEL_URL).then((loaded) => {
-  if (!loaded && !state.modelRoot) {
-    setStatus('Bereit. Lade ein glTF / GLB Modell.');
-  }
+  if (loaded || state.modelRoot) return;
+  console.info(
+    `[damage-inspector] No '${DEFAULT_MODEL_URL}' found alongside index.html — ` +
+    `place a glTF/GLB there to enable auto-load, or use the "glTF/GLB laden" button.`
+  );
+  setStatus(`Kein '${DEFAULT_MODEL_URL.replace('./','')}' gefunden — Modell manuell laden.`);
 });
