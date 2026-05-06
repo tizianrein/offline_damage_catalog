@@ -67,7 +67,8 @@ body {
 .app {
   display: grid;
   grid-template-columns: 280px 1fr 360px;
-  height: 100vh;
+  height: 100vh;        /* fallback for older browsers */
+  height: 100dvh;       /* dynamic viewport height — accounts for iOS toolbar */
 }
 
 @media (max-width: 1100px) {
@@ -528,7 +529,7 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
    ============================================================== */
 .place-bar {
   position: absolute;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
@@ -847,7 +848,7 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
   /* FAB triggers — only visible on mobile, anchored bottom-corner */
   .fab {
     position: fixed;
-    bottom: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
     z-index: 30;
     width: 52px;
     height: 52px;
@@ -861,8 +862,8 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
     cursor: pointer;
     box-shadow: 0 8px 20px rgba(0,0,0,.25);
   }
-  .fab.fab-tools { left: 16px; }
-  .fab.fab-list  { right: 16px; }
+  .fab.fab-tools { left: calc(16px + env(safe-area-inset-left)); }
+  .fab.fab-list  { right: calc(16px + env(safe-area-inset-right)); }
   .fab .fab-badge {
     position: absolute;
     top: -4px;
@@ -902,7 +903,17 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
   .hint { display: none; }
 
   /* Place-button is in line with the FABs at bottom-center.
-     Cancel button hidden on mobile — tap empty space to clear. */
+     IMPORTANT: position fixed (not absolute) so it sticks to the
+     viewport edge regardless of how iOS Safari resizes its
+     bottom toolbar. Otherwise it can disappear behind the URL bar
+     when scrolling/interacting on mobile. */
+  .place-bar {
+    position: fixed;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+  }
   .place-btn-secondary { display: none; }
 
   .cursor-readout {
