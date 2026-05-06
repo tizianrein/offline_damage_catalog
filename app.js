@@ -179,6 +179,11 @@ const ro = new ResizeObserver(() => {
 ro.observe(dom.viewerCanvas);
 
 // render loop
+// Note: cursorMesh is declared up-front so the first animation frame
+// after module load doesn't hit a TDZ ReferenceError before the
+// cursor module further down has been parsed.
+let cursorMesh = null;
+
 function tick() {
   controls.update();
 
@@ -576,7 +581,8 @@ function handleHover(e) {
 const cursorRingGeo = new THREE.RingGeometry(0.7, 1.0, 32);
 const cursorDotGeo  = new THREE.SphereGeometry(0.25, 16, 12);
 
-let cursorMesh = null;     // a small group with a ring + dot, parented to the active part
+// (cursorMesh is declared further up, before the render loop, to
+//  avoid a temporal-dead-zone ReferenceError on the first frame.)
 
 /**
  * Sets or clears the target cursor. Pass null to clear.
