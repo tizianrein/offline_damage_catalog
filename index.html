@@ -1,77 +1,199 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Cube Comments</title>
-  <meta name="theme-color" content="#ffffff" />
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; color: #111827; }
-    .app { display: grid; grid-template-columns: 1fr 320px; min-height: 100vh; }
-    .viewer { position: relative; background: #e5e7eb; overflow: hidden; }
-    #canvasWrap { width: 100%; height: 100vh; }
-    .topbar { position: absolute; top: 16px; left: 16px; z-index: 10; display: flex; gap: 10px; flex-wrap: wrap; }
-    .topbar button { border: none; border-radius: 10px; padding: 10px 12px; color: white; cursor: pointer; background: #1f2937; font-size: 14px; }
-    .topbar .secondary { background: #6b7280; }
-    .topbar .danger { background: #b91c1c; }
-    .status { position: absolute; left: 16px; bottom: 16px; z-index: 10; background: rgba(255,255,255,0.95); border-radius: 10px; padding: 10px 12px; font-size: 14px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); max-width: 520px; }
-    .sidebar { background: white; border-left: 1px solid #e5e7eb; padding: 18px; overflow: auto; }
-    .sidebar h2 { margin-top: 0; }
-    .hint { font-size: 14px; color: #4b5563; line-height: 1.5; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; margin-bottom: 16px; }
-    .entry-list { display: flex; flex-direction: column; gap: 12px; }
-    .entry { border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; background: #fafafa; }
-    .entry strong { display: block; margin-bottom: 6px; }
-    .entry .small { color: #6b7280; font-size: 13px; line-height: 1.45; margin-bottom: 8px; }
-    .entry .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    .entry .actions button { border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer; color: white; background: #374151; font-size: 13px; }
-    .entry .actions .danger { background: #b91c1c; }
-    .empty { color: #6b7280; font-size: 14px; }
-    @media (max-width: 900px) {
-      .app { grid-template-columns: 1fr; }
-      .sidebar { border-left: none; border-top: 1px solid #e5e7eb; }
-      #canvasWrap { height: 70vh; }
-    }
-  </style>
-  
-  <!-- Import Map für Three.js ES-Modul hinzugefügt -->
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"
-      }
-    }
-  </script>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Damage Inspector</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📍</text></svg>" />
+<link rel="stylesheet" href="./style.css" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
+    "jszip": "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm"
+  }
+}
+</script>
 </head>
 <body>
-  <div class="app">
-    <section class="viewer">
-      <div class="topbar">
-        <button id="resetViewBtn" type="button">Ansicht zurücksetzen</button>
-        <button id="exportBtn" type="button" class="secondary">JSON exportieren</button>
-        <button id="clearBtn" type="button" class="danger">Alle löschen</button>
+<div class="app">
+
+  <!-- LEFT TOOLBAR ---------------------------------------------------- -->
+  <aside class="toolbar">
+    <div class="brand">
+      <div class="brand-mark">◐</div>
+      <div class="brand-text">
+        <div class="brand-title">Damage Inspector</div>
+        <div class="brand-sub">v0.1 · partbased</div>
+      </div>
+    </div>
+
+    <div class="tool-section">
+      <div class="tool-label">Modell</div>
+      <button class="btn" id="loadGltfBtn">glTF / GLB laden</button>
+      <input type="file" id="gltfInput" accept=".gltf,.glb,model/gltf-binary,model/gltf+json" hidden />
+      <div class="model-meta" id="modelMeta">— kein Modell —</div>
+    </div>
+
+    <div class="tool-section">
+      <div class="tool-label">Daten</div>
+      <button class="btn ghost" id="importBtn">JSON / ZIP importieren</button>
+      <input type="file" id="importInput" accept=".json,.zip" hidden />
+      <button class="btn ghost" id="exportJsonBtn">JSON exportieren</button>
+      <button class="btn ghost" id="exportZipBtn">ZIP exportieren (mit Fotos)</button>
+      <button class="btn danger ghost" id="clearAllBtn">Alle Schäden löschen</button>
+    </div>
+
+    <div class="tool-section">
+      <div class="tool-label">Ansicht</div>
+      <button class="btn ghost" id="resetViewBtn">Ansicht zurücksetzen</button>
+      <label class="toggle">
+        <input type="checkbox" id="markersToggle" checked />
+        <span>Marker sichtbar</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="xrayToggle" />
+        <span>X-Ray (Parts halbtransparent)</span>
+      </label>
+    </div>
+
+    <div class="tool-section grow">
+      <div class="tool-label">Parts</div>
+      <input type="search" id="partSearch" placeholder="Part suchen…" class="search" />
+      <div class="part-list" id="partList"></div>
+    </div>
+
+    <div class="footer-status" id="status">Bereit. Lade ein glTF-Modell.</div>
+  </aside>
+
+  <!-- VIEWER ---------------------------------------------------------- -->
+  <main class="viewer">
+    <div class="viewer-canvas" id="viewerCanvas"></div>
+
+    <div class="hud-tl">
+      <div id="hoverInfo" class="hud-card hidden"></div>
+    </div>
+
+    <div class="hud-bl">
+      <div class="legend">
+        <span><i class="dot dot-default"></i>Schaden</span>
+        <span><i class="dot dot-selected"></i>ausgewählt</span>
+        <span><i class="dot dot-hover"></i>hover</span>
+      </div>
+    </div>
+
+    <div class="hud-br">
+      <div class="hint" id="modeHint">
+        Klick auf das Modell setzt einen Marker.
+      </div>
+    </div>
+
+    <!-- Empty-state overlay -->
+    <div class="empty-overlay" id="emptyOverlay">
+      <div class="empty-card">
+        <div class="empty-icon">◐</div>
+        <h2>Kein Modell geladen</h2>
+        <p>Lade ein <code>.gltf</code> oder <code>.glb</code> mit benannten Nodes.<br/>
+           Jeder Node-Name wird zu einer Part-ID.</p>
+        <button class="btn primary" id="loadGltfBtn2">glTF / GLB laden</button>
+        <p class="empty-hint">Tipp: In Blender vor dem Export Objekte sauber benennen
+           (<code>leg_front_left</code>, <code>seat_top</code>, …).</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- RIGHT SIDEBAR --------------------------------------------------- -->
+  <aside class="sidebar">
+    <header class="sidebar-head">
+      <h2>Schäden</h2>
+      <span class="count" id="damageCount">0</span>
+    </header>
+
+    <div class="sidebar-tools">
+      <input type="search" id="damageSearch" placeholder="In Schäden suchen…" class="search" />
+      <select id="damageFilterPart" class="select">
+        <option value="">Alle Parts</option>
+      </select>
+    </div>
+
+    <div class="damage-list" id="damageList">
+      <div class="empty-list">Noch keine Schäden erfasst.</div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- DAMAGE EDITOR MODAL ----------------------------------------------- -->
+<div class="modal" id="damageModal" hidden>
+  <div class="modal-card">
+    <header class="modal-head">
+      <div>
+        <div class="modal-eyebrow" id="modalEyebrow">Neuer Schaden</div>
+        <h3 id="modalTitle">Schaden erfassen</h3>
+      </div>
+      <button class="icon-btn" id="modalCloseBtn" title="Schließen">✕</button>
+    </header>
+
+    <div class="modal-body">
+      <div class="field">
+        <label>Part</label>
+        <div class="readout" id="modalPart">—</div>
       </div>
 
-      <div id="canvasWrap"></div>
-      <div class="status" id="status">Bereit. Würfel drehen oder auf eine Fläche klicken, um einen Kommentar zu setzen.</div>
-    </section>
-
-    <aside class="sidebar">
-      <h2>Kommentare</h2>
-      <div class="hint">
-        Gespeichert werden:
-        <br>• Face
-        <br>• UV-Koordinate auf der Fläche
-        <br>• 3D-Punkt auf dem Würfel
-        <br>• Kommentar
-        <br>• Zeitstempel
+      <div class="field-row">
+        <div class="field">
+          <label>Typ</label>
+          <select id="modalType">
+            <option value="scratch">Kratzer</option>
+            <option value="crack">Riss</option>
+            <option value="dent">Delle</option>
+            <option value="missing">Fehlend</option>
+            <option value="deformation">Verformung</option>
+            <option value="wear">Verschleiß</option>
+            <option value="stain">Fleck / Verfärbung</option>
+            <option value="other">Sonstiges</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Schweregrad</label>
+          <div class="severity" id="modalSeverity">
+            <button data-v="1" type="button">1</button>
+            <button data-v="2" type="button">2</button>
+            <button data-v="3" type="button">3</button>
+            <button data-v="4" type="button">4</button>
+            <button data-v="5" type="button">5</button>
+          </div>
+        </div>
       </div>
-      <div class="entry-list" id="entries"></div>
-    </aside>
+
+      <div class="field">
+        <label>Beschreibung</label>
+        <textarea id="modalText" rows="4" placeholder="z.B. Tiefer Kratzer entlang der Längskante, ca. 8 cm."></textarea>
+      </div>
+
+      <div class="field">
+        <label>Position (lokal im Part)</label>
+        <div class="coords" id="modalCoords">x = … y = … z = …</div>
+      </div>
+
+      <div class="field">
+        <label>Fotos</label>
+        <div class="photos" id="modalPhotos"></div>
+        <button class="btn ghost small" id="addPhotoBtn">+ Foto hinzufügen</button>
+        <input type="file" id="photoInput" accept="image/*" multiple hidden />
+      </div>
+    </div>
+
+    <footer class="modal-foot">
+      <button class="btn danger ghost" id="modalDeleteBtn" hidden>Löschen</button>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="modalCancelBtn">Abbrechen</button>
+      <button class="btn primary" id="modalSaveBtn">Speichern</button>
+    </footer>
   </div>
+</div>
 
-  <!-- App.js als module laden -->
-  <script type="module" src="./app.js"></script>
+<script type="module" src="./app.js"></script>
 </body>
 </html>

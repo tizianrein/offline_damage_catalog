@@ -1,9 +1,0 @@
-{
-  "name": "Cube Comments",
-  "short_name": "CubeComments",
-  "start_url": "./",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
-  "icons": []
-}
