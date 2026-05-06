@@ -218,6 +218,49 @@ async function loadGltfFromFile(file) {
   installModel(gltf.scene, file.name);
 }
 
+/**
+ * Loads a glTF/GLB by URL. Resource URL is used as base path so .gltf
+ * can find external buffers/textures next to it. For .glb everything
+ * is embedded so the base doesn't matter.
+ *
+ * Resolves with `true` if the model was loaded, `false` if the URL
+ * was not found (404) — that's a soft failure: the caller can stay
+ * silent and let the user load manually.
+ */
+async function loadGltfFromUrl(url, displayName) {
+  const name = displayName || url.split('/').pop() || 'model';
+  setStatus(`Lade ${name} …`);
+  try {
+    // probe first so a missing default model doesn't dump a stack trace
+    const head = await fetch(url, { method: 'HEAD' });
+    if (!head.ok) {
+      if (head.status === 404) return false;
+      throw new Error(`HTTP ${head.status}`);
+    }
+  } catch (err) {
+    // network or CORS — surface but don't crash
+    console.warn('HEAD probe failed:', err);
+    setStatus(`Modell ${name} nicht erreichbar.`);
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    gltfLoader.load(
+      url,
+      (gltf) => {
+        installModel(gltf.scene, name);
+        resolve(true);
+      },
+      undefined,
+      (err) => {
+        console.error(err);
+        setStatus(`Fehler beim Laden von ${name}: ${err?.message || err}`);
+        resolve(false);
+      },
+    );
+  });
+}
+
 function installModel(rootIn, fileName) {
   // remove previous
   if (state.modelRoot) {
@@ -1083,6 +1126,17 @@ function populatePartFilter() {
 function renderDamageList() {
   dom.damageCount.textContent = state.damages.length;
 
+  // also update mobile FAB badge
+  const badge = document.getElementById('fabBadge');
+  if (badge) {
+    if (state.damages.length > 0) {
+      badge.textContent = state.damages.length > 99 ? '99+' : state.damages.length;
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+
   const q = state.damageQuery.toLowerCase();
   const filterPart = state.filterPartId || dom.damageFilter.value || '';
 
@@ -1301,6 +1355,50 @@ function wireModal() {
 }
 
 // drag-drop a glTF/GLB anywhere
+// Mobile drawer triggers — toolbar (left) and sidebar (right) become
+// slide-in panels under 900px. The backdrop closes whichever is open.
+function wireDrawers() {
+  const fabTools = document.getElementById('fabTools');
+  const fabList  = document.getElementById('fabList');
+  const backdrop = document.getElementById('drawerBackdrop');
+  const closeButtons = document.querySelectorAll('.drawer-close');
+
+  function open(which) {
+    document.body.classList.remove('drawer-toolbar-open', 'drawer-sidebar-open');
+    document.body.classList.add(`drawer-${which}-open`);
+  }
+  function closeAll() {
+    document.body.classList.remove('drawer-toolbar-open', 'drawer-sidebar-open');
+  }
+
+  fabTools?.addEventListener('click', () => open('toolbar'));
+  fabList?.addEventListener('click', () => open('sidebar'));
+  backdrop?.addEventListener('click', closeAll);
+  for (const btn of closeButtons) {
+    btn.addEventListener('click', closeAll);
+  }
+
+  // close drawer with Escape (when no modal is open)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && dom.modal.hidden) closeAll();
+  });
+
+  // when the user picks something action-y in the toolbar/sidebar that
+  // navigates to the viewer, auto-close the drawer for a smoother flow
+  function autoCloseOnInteraction(rootSelector) {
+    const root = document.querySelector(rootSelector);
+    if (!root) return;
+    root.addEventListener('click', (e) => {
+      if (window.innerWidth > 900) return;
+      // close on actual control interactions, not on every text-input click
+      const t = e.target;
+      if (t.matches('button, .part-row, .damage-card')) closeAll();
+    });
+  }
+  autoCloseOnInteraction('.toolbar');
+  autoCloseOnInteraction('.sidebar');
+}
+
 function wireDragDrop() {
   const target = document.body;
   ['dragenter','dragover'].forEach(t =>
@@ -1322,13 +1420,25 @@ function wireDragDrop() {
 // 14. Init
 // ---------------------------------------------------------------
 
+const DEFAULT_MODEL_URL = './model.glb';
+
 loadAll();
 wireToolbar();
 wireModal();
 wireDragDrop();
+wireDrawers();
 renderPartList();
 renderDamageList();
 
 setStatus(state.damages.length
-  ? `${state.damages.length} Schäden aus localStorage geladen — bitte passendes Modell laden.`
-  : 'Bereit. Lade ein glTF / GLB Modell.');
+  ? `${state.damages.length} Schäden aus localStorage geladen.`
+  : 'Bereit. Suche Standardmodell …');
+
+// Try to auto-load a default model from the same directory.
+// Silent fallback: if it doesn't exist, the empty-state stays visible
+// and the user can load via button / drag-drop.
+loadGltfFromUrl(DEFAULT_MODEL_URL).then((loaded) => {
+  if (!loaded && !state.modelRoot) {
+    setStatus('Bereit. Lade ein glTF / GLB Modell.');
+  }
+});

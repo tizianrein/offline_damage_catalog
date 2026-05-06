@@ -27,6 +27,7 @@
         <div class="brand-title">Damage Inspector</div>
         <div class="brand-sub">v0.1 · partbased</div>
       </div>
+      <button class="drawer-close" data-drawer="toolbar" title="Schließen">✕</button>
     </div>
 
     <div class="tool-section">
@@ -108,6 +109,7 @@
     <header class="sidebar-head">
       <h2>Schäden</h2>
       <span class="count" id="damageCount">0</span>
+      <button class="drawer-close" data-drawer="sidebar" title="Schließen">✕</button>
     </header>
 
     <div class="sidebar-tools">
@@ -123,6 +125,14 @@
   </aside>
 
 </div>
+
+<!-- Mobile drawer triggers (hidden on desktop via CSS) -->
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+<button class="fab fab-tools" id="fabTools" title="Werkzeuge" aria-label="Werkzeuge">☰</button>
+<button class="fab fab-list" id="fabList" title="Schäden" aria-label="Schäden">
+  📋
+  <span class="fab-badge" id="fabBadge" hidden>0</span>
+</button>
 
 <!-- DAMAGE EDITOR MODAL ----------------------------------------------- -->
 <div class="modal" id="damageModal" hidden>
