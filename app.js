@@ -671,7 +671,7 @@ function updatePlaceUI() {
 
   if (tc) {
     placeBtn.disabled = false;
-    placeBtn.querySelector('.place-text').textContent = 'Schaden hier setzen';
+    placeBtn.title = 'Schaden hier setzen';
     cancelBtn.hidden = false;
     readout.hidden = false;
     document.getElementById('crPart').textContent = tc.partId;
@@ -680,8 +680,9 @@ function updatePlaceUI() {
     document.getElementById('crZ').textContent = tc.point.z.toFixed(3);
   } else {
     placeBtn.disabled = !state.modelRoot;
-    placeBtn.querySelector('.place-text').textContent =
-      state.modelRoot ? 'Erst Punkt antippen' : 'Modell laden';
+    placeBtn.title = state.modelRoot
+      ? 'Erst Punkt am Modell antippen, dann hier bestätigen'
+      : 'Modell laden';
     cancelBtn.hidden = true;
     readout.hidden = true;
   }

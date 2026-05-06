@@ -76,14 +76,6 @@
       <div id="hoverInfo" class="hud-card hidden"></div>
     </div>
 
-    <div class="hud-bl">
-      <div class="legend">
-        <span><i class="dot dot-default"></i>Schaden</span>
-        <span><i class="dot dot-selected"></i>ausgewählt</span>
-        <span><i class="dot dot-hover"></i>hover</span>
-      </div>
-    </div>
-
     <div class="hud-br">
       <div class="hint" id="modeHint">
         Tippe das Modell an, dann unten bestätigen.
@@ -101,9 +93,8 @@
 
     <!-- Bottom center: place damage button -->
     <div class="place-bar">
-      <button class="place-btn" id="placeDamageBtn" disabled>
+      <button class="place-btn" id="placeDamageBtn" disabled aria-label="Schaden hier setzen">
         <span class="place-icon">＋</span>
-        <span class="place-text">Schaden hier setzen</span>
       </button>
       <button class="place-btn-secondary" id="cancelTargetBtn" hidden title="Auswahl verwerfen">✕</button>
     </div>
