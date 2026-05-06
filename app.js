@@ -74,6 +74,7 @@ const state = {
   partQuery:        '',
   xray:             false,
   markersVisible:   true,
+  targetCursor:     null,            // {partId, point, normal} or null
 
   // marker meshes (id -> Mesh, parented to the corresponding part)
   markerMeshes: new Map(),
@@ -180,6 +181,15 @@ ro.observe(dom.viewerCanvas);
 // render loop
 function tick() {
   controls.update();
+
+  // gentle pulse for the target cursor so it's easy to spot
+  if (cursorMesh) {
+    const t = (performance.now() - cursorMesh.userData.pulseStart) / 1000;
+    const pulse = 1 + Math.sin(t * 4) * 0.08;
+    const baseScale = computeMarkerRadius() * 2.2;
+    cursorMesh.scale.setScalar(baseScale * pulse);
+  }
+
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
@@ -271,6 +281,10 @@ function installModel(rootIn, fileName) {
   state.partsById.clear();
   state.partsList = [];
   state.markerMeshes.clear();
+  // cursor visual was parented to the previous model and is gone now;
+  // also drop the state and the local reference
+  cursorMesh = null;
+  state.targetCursor = null;
 
   // collect parts: any Object3D with a non-empty name AND containing meshes
   // we treat each NAMED node as a "part". An ID is the node name.
@@ -334,6 +348,7 @@ function installModel(rootIn, fileName) {
   renderPartList();
   renderDamageList();
   populatePartFilter();
+  updatePlaceUI();
   setStatus(`Geladen: ${fileName} mit ${state.partsList.length} Parts.`);
 }
 
@@ -393,32 +408,125 @@ function pickFromEvent(e) {
   return { kind: 'mesh', hit: meshHit };
 }
 
-let pointerDown = null;
-let pointerMoved = false;
+// Pointer interaction
+// -------------------
+// On any device, a single short tap on the model sets a TARGET CURSOR
+// (a small marker the user can move around to preview where a damage
+// would land). The actual damage is created via the place-button at
+// the bottom-center of the viewer.
+//
+// A tap on an existing damage marker opens the editor for it directly.
+//
+// Multi-touch (pinch / two-finger pan) is detected via the count of
+// active pointers and never produces a tap, so zooming on mobile no
+// longer accidentally drops markers.
+
+const activePointers = new Map();   // pointerId -> {x, y, startTime, moved}
+const TAP_MOVE_THRESHOLD = 8;       // px — anything past this is a drag, not a tap
+const TAP_TIME_THRESHOLD = 500;     // ms — slow press is also not a tap
+let multiTouchActive = false;       // latched true while >1 pointers down
 
 renderer.domElement.addEventListener('pointerdown', (e) => {
-  pointerDown = { x: e.clientX, y: e.clientY };
-  pointerMoved = false;
-});
-renderer.domElement.addEventListener('pointermove', (e) => {
-  if (pointerDown) {
-    const dx = e.clientX - pointerDown.x;
-    const dy = e.clientY - pointerDown.y;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) pointerMoved = true;
+  activePointers.set(e.pointerId, {
+    x: e.clientX, y: e.clientY,
+    startX: e.clientX, startY: e.clientY,
+    startTime: performance.now(),
+    moved: false,
+  });
+  if (activePointers.size > 1) {
+    multiTouchActive = true;
   }
-  // hover preview
-  handleHover(e);
 });
-renderer.domElement.addEventListener('pointerup', (e) => {
-  const wasDrag = pointerMoved;
-  pointerDown = null;
-  pointerMoved = false;
-  if (wasDrag) return;
-  handleClick(e);
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+  const p = activePointers.get(e.pointerId);
+  if (p) {
+    p.x = e.clientX; p.y = e.clientY;
+    const dx = e.clientX - p.startX;
+    const dy = e.clientY - p.startY;
+    if (Math.abs(dx) > TAP_MOVE_THRESHOLD || Math.abs(dy) > TAP_MOVE_THRESHOLD) {
+      p.moved = true;
+    }
+  }
+  // hover preview only when nothing is being dragged AND we are not on touch
+  if (e.pointerType !== 'touch' && activePointers.size === 0) {
+    handleHover(e);
+  }
 });
-renderer.domElement.addEventListener('pointerleave', () => {
-  hideHoverInfo();
+
+function pointerEnd(e) {
+  const p = activePointers.get(e.pointerId);
+  activePointers.delete(e.pointerId);
+
+  // Only treat as a tap if:
+  //   - there is no other pointer still down
+  //   - this one didn't move past the threshold
+  //   - it wasn't a long press
+  //   - we never went into multi-touch during this gesture
+  if (!p) return;
+  const dt = performance.now() - p.startTime;
+  const isTap = !p.moved && dt < TAP_TIME_THRESHOLD;
+
+  // Reset multi-touch latch only when ALL pointers are released
+  const wasMulti = multiTouchActive;
+  if (activePointers.size === 0) multiTouchActive = false;
+
+  if (!isTap) return;
+  if (wasMulti) return;
+  if (activePointers.size > 0) return;
+
+  handleTap(e);
+}
+renderer.domElement.addEventListener('pointerup', pointerEnd);
+renderer.domElement.addEventListener('pointercancel', pointerEnd);
+renderer.domElement.addEventListener('pointerleave', (e) => {
+  // hover only — don't fire taps from a leave
+  if (e.pointerType !== 'touch') hideHoverInfo();
+  activePointers.delete(e.pointerId);
+  if (activePointers.size === 0) multiTouchActive = false;
 });
+
+function handleTap(e) {
+  if (!state.modelRoot) return;
+  const pick = pickFromEvent(e);
+  if (!pick) {
+    // tapping empty space clears the target cursor
+    setTargetCursor(null);
+    return;
+  }
+  if (pick.kind === 'marker') {
+    const id = pick.hit.object.userData.damageId;
+    setSelectedDamage(id);
+    openDamageEditor({ damageId: id });
+    return;
+  }
+  // tapped a mesh: position the target cursor here
+  const partId = pick.hit.object.userData.ownerPartId;
+  if (!partId) {
+    setStatus('Kein benannter Part getroffen — Modell mit benannten Nodes verwenden.');
+    return;
+  }
+  const partObj = state.partsById.get(partId);
+  if (!partObj) return;
+
+  partObj.updateWorldMatrix(true, false);
+  const localPoint = partObj.worldToLocal(pick.hit.point.clone());
+
+  let localNormal = new THREE.Vector3(0, 1, 0);
+  if (pick.hit.face) {
+    const meshObj = pick.hit.object;
+    const worldNormal = pick.hit.face.normal.clone()
+      .transformDirection(meshObj.matrixWorld);
+    const inv = new THREE.Matrix4().copy(partObj.matrixWorld).invert();
+    localNormal = worldNormal.transformDirection(inv).normalize();
+  }
+
+  setTargetCursor({
+    partId,
+    point:  { x: localPoint.x, y: localPoint.y, z: localPoint.z },
+    normal: { x: localNormal.x, y: localNormal.y, z: localNormal.z },
+  });
+}
 
 function handleHover(e) {
   if (!state.modelRoot) return hideHoverInfo();
@@ -461,53 +569,116 @@ function handleHover(e) {
   updateMarkerColors();
 }
 
-function handleClick(e) {
-  if (!state.modelRoot) return;
-  const pick = pickFromEvent(e);
-  if (!pick) {
-    setSelectedDamage(null);
+// ---------------------------------------------------------------
+// 4b. Target cursor (preview crosshair before placing damage)
+// ---------------------------------------------------------------
+
+const cursorRingGeo = new THREE.RingGeometry(0.7, 1.0, 32);
+const cursorDotGeo  = new THREE.SphereGeometry(0.25, 16, 12);
+
+let cursorMesh = null;     // a small group with a ring + dot, parented to the active part
+
+/**
+ * Sets or clears the target cursor. Pass null to clear.
+ * `data` = { partId, point: {x,y,z}, normal: {x,y,z} } — all in part-local space.
+ */
+function setTargetCursor(data) {
+  // remove old visual
+  if (cursorMesh) {
+    cursorMesh.removeFromParent();
+    cursorMesh.traverse((o) => {
+      if (o.material) o.material.dispose?.();
+    });
+    cursorMesh = null;
+  }
+  state.targetCursor = data;
+
+  if (!data) {
+    updatePlaceUI();
     return;
   }
 
-  if (pick.kind === 'marker') {
-    const id = pick.hit.object.userData.damageId;
-    setSelectedDamage(id);
-    openDamageEditor({ damageId: id });
-    return;
-  }
-
-  // create new damage
-  const partId = pick.hit.object.userData.ownerPartId;
-  if (!partId) {
-    setStatus('Kein benannter Part getroffen — bitte Modell mit benannten Nodes verwenden.');
-    return;
-  }
-
-  const partObj = state.partsById.get(partId);
+  const partObj = state.partsById.get(data.partId);
   if (!partObj) return;
 
-  // convert world hit point to part-local space
-  partObj.updateWorldMatrix(true, false);
-  const localPoint = partObj.worldToLocal(pick.hit.point.clone());
-
-  // local face normal: face.normal is in mesh-local space; convert from
-  // mesh-local through world to part-local
-  let localNormal = new THREE.Vector3(0, 1, 0);
-  if (pick.hit.face) {
-    const meshObj = pick.hit.object;
-    const worldNormal = pick.hit.face.normal.clone()
-      .transformDirection(meshObj.matrixWorld);
-    // world -> part local (inverse of partObj.matrixWorld, but for directions
-    // we use transformDirection on the inverse)
-    const inv = new THREE.Matrix4().copy(partObj.matrixWorld).invert();
-    localNormal = worldNormal.transformDirection(inv).normalize();
-  }
-
-  openDamageEditor({
-    partId,
-    point:  { x: localPoint.x, y: localPoint.y, z: localPoint.z },
-    normal: { x: localNormal.x, y: localNormal.y, z: localNormal.z },
+  // Build a small crosshair: a flat ring oriented along the surface normal,
+  // plus a center dot. Both in part-local space.
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x1f4e79,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,           // draw on top so the user always sees it
   });
+  const dotMat = new THREE.MeshBasicMaterial({
+    color: 0x1f4e79,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
+  });
+  const ring = new THREE.Mesh(cursorRingGeo, ringMat);
+  const dot  = new THREE.Mesh(cursorDotGeo,  dotMat);
+  // render after everything else
+  ring.renderOrder = 999;
+  dot.renderOrder  = 999;
+
+  const group = new THREE.Group();
+  group.add(ring);
+  group.add(dot);
+
+  // scale to model size
+  const r = computeMarkerRadius() * 2.2;
+  group.scale.setScalar(r);
+
+  // position at hit point, lifted slightly along normal so it doesn't z-fight
+  const normal = new THREE.Vector3(data.normal.x, data.normal.y, data.normal.z).normalize();
+  const offset = normal.clone().multiplyScalar(r * 0.05);
+  group.position.set(
+    data.point.x + offset.x,
+    data.point.y + offset.y,
+    data.point.z + offset.z,
+  );
+
+  // orient ring so its plane is perpendicular to the normal
+  // The ring geometry lies in the XY-plane (normal +Z); rotate +Z to match `normal`
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    normal,
+  );
+  group.quaternion.copy(q);
+
+  partObj.add(group);
+  cursorMesh = group;
+
+  // animate the ring with a gentle pulse
+  group.userData.pulseStart = performance.now();
+
+  updatePlaceUI();
+}
+
+function updatePlaceUI() {
+  const tc = state.targetCursor;
+  const placeBtn = document.getElementById('placeDamageBtn');
+  const cancelBtn = document.getElementById('cancelTargetBtn');
+  const readout = document.getElementById('cursorReadout');
+  if (!placeBtn) return;
+
+  if (tc) {
+    placeBtn.disabled = false;
+    placeBtn.querySelector('.place-text').textContent = 'Schaden hier setzen';
+    cancelBtn.hidden = false;
+    readout.hidden = false;
+    document.getElementById('crPart').textContent = tc.partId;
+    document.getElementById('crX').textContent = tc.point.x.toFixed(3);
+    document.getElementById('crY').textContent = tc.point.y.toFixed(3);
+    document.getElementById('crZ').textContent = tc.point.z.toFixed(3);
+  } else {
+    placeBtn.disabled = !state.modelRoot;
+    placeBtn.querySelector('.place-text').textContent =
+      state.modelRoot ? 'Erst Punkt antippen' : 'Modell laden';
+    cancelBtn.hidden = true;
+    readout.hidden = true;
+  }
 }
 
 function showHoverInfo({ title, rows }) {
@@ -1042,6 +1213,8 @@ function commitDamageEditor() {
   };
   if (modalCtx.mode === 'new') {
     createDamage(data);
+    // a real marker now lives where the cursor was — drop the cursor
+    setTargetCursor(null);
   } else {
     updateDamage(modalCtx.damageId, data);
   }
@@ -1320,6 +1493,23 @@ function wireToolbar() {
     renderDamageList();
     renderPartList();
   });
+
+  // Bottom-center place button: open editor with cursor data
+  $('placeDamageBtn').addEventListener('click', () => {
+    const tc = state.targetCursor;
+    if (!tc) {
+      setStatus('Erst auf das Modell tippen, um den Punkt zu setzen.');
+      return;
+    }
+    openDamageEditor({
+      partId: tc.partId,
+      point:  tc.point,
+      normal: tc.normal,
+    });
+  });
+  $('cancelTargetBtn').addEventListener('click', () => {
+    setTargetCursor(null);
+  });
 }
 
 function wireModal() {
@@ -1420,7 +1610,10 @@ function wireDragDrop() {
 // 14. Init
 // ---------------------------------------------------------------
 
-const DEFAULT_MODEL_URL = './model.glb';
+// We probe these in order. First hit wins. .glb is preferred
+// because it's self-contained; .gltf may need accompanying .bin
+// or texture files next to it.
+const DEFAULT_MODEL_CANDIDATES = ['./model.glb', './model.gltf'];
 
 loadAll();
 wireToolbar();
@@ -1429,20 +1622,23 @@ wireDragDrop();
 wireDrawers();
 renderPartList();
 renderDamageList();
+updatePlaceUI();
 
 setStatus(state.damages.length
   ? `${state.damages.length} Schäden aus localStorage geladen.`
   : 'Bereit. Suche Standardmodell …');
 
 // Try to auto-load a default model from the same directory.
-// If it doesn't exist (404), the empty-state stays visible and
-// the user can load via button / drag-drop. We log clearly to
-// the console so debugging works.
-loadGltfFromUrl(DEFAULT_MODEL_URL).then((loaded) => {
-  if (loaded || state.modelRoot) return;
+// If none exists, the empty-state stays visible.
+(async () => {
+  for (const url of DEFAULT_MODEL_CANDIDATES) {
+    const ok = await loadGltfFromUrl(url);
+    if (ok) return;
+  }
+  if (state.modelRoot) return;
   console.info(
-    `[damage-inspector] No '${DEFAULT_MODEL_URL}' found alongside index.html — ` +
-    `place a glTF/GLB there to enable auto-load, or use the "glTF/GLB laden" button.`
+    `[damage-inspector] No default model found. Tried: ${DEFAULT_MODEL_CANDIDATES.join(', ')}. ` +
+    `Place a glTF/GLB there to enable auto-load, or use the "glTF/GLB laden" button.`
   );
-  setStatus(`Kein '${DEFAULT_MODEL_URL.replace('./','')}' gefunden — Modell manuell laden.`);
-});
+  setStatus(`Kein Standardmodell (${DEFAULT_MODEL_CANDIDATES.map(s=>s.replace('./','')).join(' / ')}) gefunden — bitte manuell laden.`);
+})();

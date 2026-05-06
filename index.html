@@ -86,8 +86,26 @@
 
     <div class="hud-br">
       <div class="hint" id="modeHint">
-        Klick auf das Modell setzt einen Marker.
+        Tippe das Modell an, dann unten bestätigen.
       </div>
+    </div>
+
+    <!-- Floating cursor info (shown when a target point is selected) -->
+    <div class="cursor-readout" id="cursorReadout" hidden>
+      <div class="cr-label">Ziel</div>
+      <div class="cr-line"><span>Part</span><b id="crPart">—</b></div>
+      <div class="cr-line"><span>x</span><b id="crX">—</b></div>
+      <div class="cr-line"><span>y</span><b id="crY">—</b></div>
+      <div class="cr-line"><span>z</span><b id="crZ">—</b></div>
+    </div>
+
+    <!-- Bottom center: place damage button -->
+    <div class="place-bar">
+      <button class="place-btn" id="placeDamageBtn" disabled>
+        <span class="place-icon">＋</span>
+        <span class="place-text">Schaden hier setzen</span>
+      </button>
+      <button class="place-btn-secondary" id="cancelTargetBtn" hidden title="Auswahl verwerfen">✕</button>
     </div>
 
     <!-- Empty-state overlay -->
@@ -99,7 +117,9 @@
            Jeder Node-Name wird zu einer Part-ID.</p>
         <button class="btn primary" id="loadGltfBtn2">glTF / GLB laden</button>
         <p class="empty-hint">Tipp: In Blender vor dem Export Objekte sauber benennen
-           (<code>leg_front_left</code>, <code>seat_top</code>, …).</p>
+           (<code>leg_front_left</code>, <code>seat_top</code>, …).<br/>
+           Bedienung: Tippe das Modell an, um ein Fadenkreuz zu positionieren,
+           dann den Knopf unten zum Erfassen drücken.</p>
       </div>
     </div>
   </main>

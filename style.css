@@ -524,6 +524,105 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
 }
 
 /* ==============================================================
+   Place bar (bottom-center) + cursor readout
+   ============================================================== */
+.place-bar {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.place-btn {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 20px;
+  border: 1px solid var(--accent-deep);
+  background: var(--accent);
+  color: white;
+  border-radius: 999px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: 0.01em;
+  box-shadow: 0 8px 24px -8px rgba(193,39,45,.6);
+  transition: transform .1s, opacity .15s, background .12s;
+}
+.place-btn:hover { background: var(--accent-deep); }
+.place-btn:active { transform: translateY(1px); }
+.place-btn[disabled] {
+  background: var(--ink-mute);
+  border-color: var(--ink-mute);
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+}
+.place-icon {
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1;
+}
+.place-btn-secondary {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+}
+.place-btn-secondary:hover { background: var(--bg-soft); }
+
+.cursor-readout {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  background: rgba(255,255,255,.96);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--info);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  box-shadow: 0 8px 20px -10px rgba(31,78,121,.5);
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: calc(100% - 32px);
+}
+.cursor-readout .cr-label {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--info);
+  font-weight: 600;
+  border-right: 1px solid var(--line-soft);
+  padding-right: 14px;
+}
+.cursor-readout .cr-line {
+  display: flex;
+  gap: 6px;
+}
+.cursor-readout .cr-line span {
+  color: var(--ink-mute);
+}
+.cursor-readout .cr-line b {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ==============================================================
    Modal
    ============================================================== */
 .modal {
@@ -558,6 +657,7 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  flex-shrink: 0;
 }
 .modal-eyebrow {
   font-family: var(--mono);
@@ -590,6 +690,8 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label {
@@ -668,6 +770,8 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-shrink: 0;
+  background: var(--bg-panel);
 }
 .modal-foot .spacer { flex: 1; }
 
@@ -792,8 +896,8 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
 
   /* HUD adjustments: hover info gets in the way of touch */
   .hud-tl { top: 8px; left: 8px; max-width: calc(100vw - 16px); }
-  .hud-bl { bottom: 78px; left: 8px; }     /* lift above FAB */
-  .hud-br { bottom: 78px; right: 8px; }
+  .hud-bl { bottom: 144px; left: 8px; }    /* lift above place bar AND FAB */
+  .hud-br { display: none; }                /* mode hint hidden on mobile */
   .hint { display: none; }                  /* save space */
   .legend {
     font-size: 10px;
@@ -801,12 +905,30 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
     gap: 10px;
   }
 
+  /* Place-bar sits above the FABs on mobile */
+  .place-bar {
+    bottom: 84px;
+  }
+  .place-btn {
+    padding: 11px 16px;
+    font-size: 13px;
+  }
+  .cursor-readout {
+    top: 8px;
+    font-size: 10px;
+    padding: 6px 10px;
+    gap: 10px;
+  }
+  .cursor-readout .cr-label {
+    padding-right: 10px;
+  }
+
   /* Modal sizing on small screens */
   .modal { padding: 0; align-items: stretch; }
   .modal-card {
     max-width: 100%;
-    max-height: 100vh;
-    height: 100vh;
+    max-height: 100dvh;
+    height: 100dvh;
     border-radius: 0;
   }
   .modal-head { padding: 14px 16px; }
