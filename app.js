@@ -504,8 +504,8 @@ function applyHeightRampColors(geometry) {
   }
   const range = Math.max(1e-6, maxY - minY);
 
-  const c1 = new THREE.Color(0x223a6b); // deep blue
-  const c2 = new THREE.Color(0xd9b15a); // warm yellow
+  const c1 = new THREE.Color(0x39ff14); // neon green
+  const c2 = new THREE.Color(0xff6a00); // strong orange
   const tmp = new THREE.Color();
   for (let i = 0; i < n; i++) {
     v.fromBufferAttribute(positions, i).applyMatrix4(worldMatrix);
