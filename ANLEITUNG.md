@@ -10,7 +10,7 @@ direkt am 3D-Modell zu markieren. Sie funktioniert auf dem Smartphone, läuft
 
 - Ein **Smartphone** mit Browser (iPhone Safari oder Android Chrome)
 - **Einmalig WLAN** vor der Tour zum Einrichten
-- Den Link zur App (bekommt findet ihr auch auf moodle)
+- Den Link zur App (moodle)
 
 Empfohlen: eine **Powerbank** für unterwegs — die App ist sparsam, aber 3D
 und Fotografie ziehen am Akku.
