@@ -6,12 +6,17 @@
 <title>Damage Inspector</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📍</text></svg>" />
 <link rel="stylesheet" href="./style.css" />
+<link rel="manifest" href="./manifest.webmanifest" />
+<meta name="theme-color" content="#1a1a1a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Inspector" />
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
-    "jszip": "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm"
+    "three":          "./vendor/three/build/three.module.js",
+    "three/addons/":  "./vendor/three/examples/jsm/",
+    "jszip":          "./vendor/jszip/jszip.esm.js"
   }
 }
 </script>
@@ -28,6 +33,12 @@
         <div class="brand-sub">v0.1 · partbased</div>
       </div>
       <button class="drawer-close" data-drawer="toolbar" title="Schließen">✕</button>
+    </div>
+
+    <div class="offline-status" id="offlineStatus" data-state="checking">
+      <span class="os-dot"></span>
+      <span class="os-text">Prüfe Status…</span>
+      <span class="os-detail" id="offlineDetail"></span>
     </div>
 
     <div class="tool-section">

@@ -187,6 +187,39 @@ body {
   background: var(--bg-soft);
 }
 
+/* Offline-readiness banner at the top of the toolbar */
+.offline-status {
+  padding: 9px 18px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--bg-soft);
+  cursor: default;
+}
+.offline-status .os-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-mute);
+  flex-shrink: 0;
+}
+.offline-status .os-text { color: var(--ink-soft); flex: 1; }
+.offline-status .os-detail { color: var(--ink-mute); font-size: 9px; }
+
+.offline-status[data-state="ready"] .os-dot   { background: #2c7a4b; box-shadow: 0 0 0 3px rgba(44,122,75,.15); }
+.offline-status[data-state="ready"] .os-text  { color: #2c7a4b; }
+.offline-status[data-state="checking"] .os-dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+.offline-status[data-state="error"] .os-dot   { background: var(--accent); }
+.offline-status[data-state="error"] .os-text  { color: var(--accent); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
 /* ==============================================================
    Buttons & inputs
    ============================================================== */

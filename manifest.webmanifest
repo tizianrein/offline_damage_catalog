@@ -1,0 +1,26 @@
+{
+  "name": "Damage Inspector",
+  "short_name": "Inspector",
+  "description": "3D-Schadenserfassung an Bauteilen, offline-fähig.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f3ef",
+  "theme_color": "#1a1a1a",
+  "lang": "de",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a1a'/%3E%3Ccircle cx='96' cy='96' r='56' fill='none' stroke='%23c1272d' stroke-width='10'/%3E%3Cpath d='M40 96a56 56 0 0 1 56-56v112a56 56 0 0 1-56-56z' fill='%23c1272d'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%231a1a1a'/%3E%3Ccircle cx='256' cy='256' r='150' fill='none' stroke='%23c1272d' stroke-width='26'/%3E%3Cpath d='M106 256a150 150 0 0 1 150-150v300a150 150 0 0 1-150-150z' fill='%23c1272d'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

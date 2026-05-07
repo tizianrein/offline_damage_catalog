@@ -16,13 +16,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import JSZip from 'jszip';
+import { Storage } from './storage.js';
+import { compressImage, formatBytes } from './image-compress.js';
 
 // ---------------------------------------------------------------
 // 0. Constants & state
 // ---------------------------------------------------------------
-
-const STORAGE_KEY = 'damage-inspector.v1';
-const PHOTO_STORAGE_KEY = 'damage-inspector.photos.v1';
 
 const DAMAGE_TYPES = {
   scratch:     'Kratzer',
@@ -871,7 +870,12 @@ function deleteDamage(id) {
   // GC photos that nobody else references
   for (const pid of (dmg.photoIds || [])) {
     const stillUsed = state.damages.some((d) => d !== dmg && d.photoIds?.includes(pid));
-    if (!stillUsed) state.photos.delete(pid);
+    if (!stillUsed) {
+      const ph = state.photos.get(pid);
+      if (ph?.objectUrl) URL.revokeObjectURL(ph.objectUrl);
+      state.photos.delete(pid);
+      Storage.deletePhoto(pid).catch((e) => console.warn('photo delete:', e));
+    }
   }
   state.damages.splice(idx, 1);
   if (state.selectedDamageId === id) state.selectedDamageId = null;
@@ -889,41 +893,53 @@ function setSelectedDamage(id) {
 }
 
 // ---------------------------------------------------------------
-// 8. Storage (localStorage)
+// 8. Storage (IndexedDB via storage.js)
 // ---------------------------------------------------------------
 
-function saveAll() {
+// Saves only damages + modelMeta. Photos are persisted separately when
+// they are added (savePhoto in onPhotoFiles) and removed when their
+// last referencing damage is deleted.
+async function saveState() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    await Storage.saveState({
       damages: state.damages,
-      // model meta is nice to have but not authoritative
       modelMeta: state.modelMeta,
-    }));
-    // photos in their own key (potentially big)
-    const photoObj = {};
-    for (const [k, v] of state.photos) photoObj[k] = v;
-    localStorage.setItem(PHOTO_STORAGE_KEY, JSON.stringify(photoObj));
+    });
   } catch (err) {
-    console.warn('Storage write failed:', err);
-    setStatus(`Speichern fehlgeschlagen: ${err.message} (Fotos zu groß?)`);
+    console.warn('State write failed:', err);
+    setStatus(`Speichern fehlgeschlagen: ${err.message}`);
   }
 }
 
-function loadAll() {
+// Pull state + photos from IndexedDB. For each stored photo, create
+// an Object URL so <img src> works without round-tripping the blob
+// every render.
+async function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      state.damages = Array.isArray(parsed.damages) ? parsed.damages : [];
+    const persisted = await Storage.loadState();
+    if (persisted && Array.isArray(persisted.damages)) {
+      state.damages = persisted.damages;
     }
-    const rawP = localStorage.getItem(PHOTO_STORAGE_KEY);
-    if (rawP) {
-      const obj = JSON.parse(rawP);
-      state.photos = new Map(Object.entries(obj));
+    // populate photos map with object URLs for display
+    const photos = await Storage.getAllPhotos();
+    state.photos = new Map();
+    for (const p of photos) {
+      const url = URL.createObjectURL(p.blob);
+      state.photos.set(p.id, {
+        name: p.name,
+        mime: p.mime,
+        objectUrl: url,
+      });
     }
   } catch (err) {
-    console.warn('Storage read failed:', err);
+    console.warn('State read failed:', err);
   }
+}
+
+// Compatibility: older code paths called saveAll() — we keep the name
+// as a sync-looking wrapper that fires-and-forgets. Errors are logged.
+function saveAll() {
+  saveState().catch((e) => console.warn('saveAll:', e));
 }
 
 // ---------------------------------------------------------------
@@ -969,11 +985,13 @@ async function exportZip() {
   const photosFolder = zip.folder('photos');
   for (const [pid, photo] of state.photos) {
     if (!isPhotoReferenced(pid)) continue;
-    const dataUrl = photo.dataUrl;
-    const comma = dataUrl.indexOf(',');
-    const b64 = dataUrl.slice(comma + 1);
+    // Pull the actual blob from IndexedDB rather than re-encoding from
+    // the in-memory object URL (URLs are browser-internal and can't be
+    // turned back into bytes synchronously).
+    const stored = await Storage.getPhoto(pid);
+    if (!stored?.blob) continue;
     const fileName = photoFileName(pid, photo).replace(/^photos\//, '');
-    photosFolder.file(fileName, b64, { base64: true });
+    photosFolder.file(fileName, stored.blob);
   }
 
   const blob = await zip.generateAsync({ type: 'blob' });
@@ -1013,7 +1031,7 @@ async function importJsonFile(file) {
   let parsed;
   try { parsed = JSON.parse(text); }
   catch (e) { setStatus(`JSON ungültig: ${e.message}`); return; }
-  applyImported(parsed, null);
+  await applyImported(parsed, null);
   setStatus(`JSON importiert (${parsed.damages?.length ?? 0} Schäden).`);
 }
 
@@ -1026,39 +1044,49 @@ async function importZip(file) {
   try { parsed = JSON.parse(text); }
   catch (e) { setStatus(`JSON in ZIP ungültig: ${e.message}`); return; }
 
-  // load photos folder
+  // load photos folder. We persist each blob into IndexedDB and keep a
+  // Map of {pid -> {name, mime, objectUrl}} for in-memory display.
   const photoMap = new Map();
   const photoFiles = zip.folder('photos');
   if (photoFiles) {
     const entries = [];
     photoFiles.forEach((relPath, entry) => { if (!entry.dir) entries.push(entry); });
     for (const entry of entries) {
-      const m = entry.name.match(/photos\/([^_]+)__/);
       // we encoded id before "__" in filename
       const idMatch = entry.name.match(/photos\/([^_]+(?:_[^_]+)*?)__/);
-      const pid = idMatch ? idMatch[1] : null;
+      const pid = idMatch ? idMatch[1] : newId('p');
       const blob = await entry.async('blob');
-      const dataUrl = await blobToDataURL(blob);
       const justName = entry.name.replace(/^photos\//, '');
       const ext = justName.split('.').pop().toLowerCase();
       const mime = ext === 'png' ? 'image/png'
                  : ext === 'gif' ? 'image/gif'
                  : ext === 'webp' ? 'image/webp'
                  : 'image/jpeg';
-      const photo = { name: justName, mime, dataUrl };
-      const finalPid = pid || newId('p');
-      photoMap.set(finalPid, photo);
+      // ensure blob has a sensible mime
+      const blobTyped = blob.type ? blob : new Blob([blob], { type: mime });
+      try {
+        await Storage.savePhoto(pid, blobTyped, justName);
+      } catch (err) {
+        console.warn('Could not store imported photo:', err);
+        continue;
+      }
+      const objectUrl = URL.createObjectURL(blobTyped);
+      photoMap.set(pid, { name: justName, mime, objectUrl });
     }
   }
 
-  applyImported(parsed, photoMap);
+  await applyImported(parsed, photoMap);
   setStatus(`ZIP importiert (${parsed.damages?.length ?? 0} Schäden, ${photoMap.size} Fotos).`);
 }
 
-function applyImported(parsed, photoMap) {
+async function applyImported(parsed, photoMap) {
   if (!parsed || !Array.isArray(parsed.damages)) {
     setStatus('Datei enthält keine "damages" Liste.');
     return;
+  }
+  // before replacing, revoke old object URLs to free memory
+  for (const ph of state.photos.values()) {
+    if (ph?.objectUrl) URL.revokeObjectURL(ph.objectUrl);
   }
   // merge strategy: replace
   state.damages = parsed.damages.map((d) => ({
@@ -1068,7 +1096,7 @@ function applyImported(parsed, photoMap) {
   if (photoMap) {
     state.photos = photoMap;
   }
-  saveAll();
+  await saveState();
   rebuildAllMarkers();
   renderDamageList();
   renderPartList();
@@ -1147,8 +1175,12 @@ function openDamageEditor(opts) {
 function closeDamageEditor(saved) {
   if (!saved && modalCtx) {
     // roll back photos that were added in this session but not committed
-    for (const pid of modalCtx.addedPhotoIds) state.photos.delete(pid);
-    saveAll();
+    for (const pid of modalCtx.addedPhotoIds) {
+      const ph = state.photos.get(pid);
+      if (ph?.objectUrl) URL.revokeObjectURL(ph.objectUrl);
+      state.photos.delete(pid);
+      Storage.deletePhoto(pid).catch((e) => console.warn('rollback photo delete:', e));
+    }
   }
   modalCtx = null;
   dom.modal.hidden = true;
@@ -1174,14 +1206,17 @@ function renderModalPhotos() {
     const tile = document.createElement('div');
     tile.className = 'photo-tile';
     tile.innerHTML = `
-      <img src="${photo.dataUrl}" alt="${escapeHtml(photo.name || '')}" />
+      <img src="${photo.objectUrl}" alt="${escapeHtml(photo.name || '')}" />
       <button class="photo-rm" title="Entfernen">✕</button>
     `;
-    tile.querySelector('.photo-rm').addEventListener('click', () => {
+    tile.querySelector('.photo-rm').addEventListener('click', async () => {
       modalCtx.draftPhotoIds = modalCtx.draftPhotoIds.filter((p) => p !== pid);
-      // if it was just added in this session, also drop it from store
+      // if it was just added in this session, also drop it from store + IDB
       if (modalCtx.addedPhotoIds.includes(pid)) {
+        const ph = state.photos.get(pid);
+        if (ph?.objectUrl) URL.revokeObjectURL(ph.objectUrl);
         state.photos.delete(pid);
+        await Storage.deletePhoto(pid);
         modalCtx.addedPhotoIds = modalCtx.addedPhotoIds.filter((p) => p !== pid);
       }
       renderModalPhotos();
@@ -1193,17 +1228,43 @@ function renderModalPhotos() {
 async function onPhotoFiles(files) {
   for (const file of files) {
     if (!file.type.startsWith('image/')) continue;
-    if (file.size > 8 * 1024 * 1024) {
-      setStatus(`Foto "${file.name}" zu groß (>8 MB) — übersprungen.`);
+
+    // Hard upper bound: nobody should be uploading a 50 MB raw — but
+    // we compress aggressively below, so the practical bound is much
+    // looser than the old 8 MB cap.
+    if (file.size > 30 * 1024 * 1024) {
+      setStatus(`Foto "${file.name}" zu groß (>30 MB) — übersprungen.`);
       continue;
     }
-    const dataUrl = await blobToDataURL(file);
+
+    setStatus(`Komprimiere "${file.name}" …`);
+    let blob;
+    try {
+      blob = await compressImage(file, { maxDim: 1600, quality: 0.82 });
+    } catch (err) {
+      console.warn('compressImage failed, using original:', err);
+      blob = file;
+    }
+
     const pid = newId('p');
-    state.photos.set(pid, { name: file.name, mime: file.type, dataUrl });
+    try {
+      await Storage.savePhoto(pid, blob, file.name);
+    } catch (err) {
+      console.warn('Storage.savePhoto failed:', err);
+      setStatus(`Foto "${file.name}" konnte nicht gespeichert werden: ${err.message}`);
+      continue;
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    state.photos.set(pid, {
+      name: file.name,
+      mime: blob.type || 'image/jpeg',
+      objectUrl,
+    });
     modalCtx.draftPhotoIds.push(pid);
     modalCtx.addedPhotoIds.push(pid);
+    setStatus(`Foto hinzugefügt (${formatBytes(blob.size)}).`);
   }
-  saveAll();   // persist the photos themselves so we don't lose them on refresh
   renderModalPhotos();
 }
 
@@ -1344,7 +1405,7 @@ function renderDamageList() {
     ).join('');
     const photos = (d.photoIds || []).slice(0, 3).map((pid) => {
       const p = state.photos.get(pid);
-      return p ? `<img src="${p.dataUrl}" alt="" />` : '';
+      return p ? `<img src="${p.objectUrl}" alt="" />` : '';
     }).join('');
     const more = (d.photoIds?.length || 0) > 3
       ? `<div class="more">+${d.photoIds.length - 3}</div>`
@@ -1463,13 +1524,21 @@ function wireToolbar() {
   $('exportJsonBtn').addEventListener('click', exportJson);
   $('exportZipBtn').addEventListener('click', exportZip);
 
-  $('clearAllBtn').addEventListener('click', () => {
+  $('clearAllBtn').addEventListener('click', async () => {
     if (!state.damages.length) return;
     if (!confirm(`${state.damages.length} Schäden wirklich löschen? Bilder werden ebenfalls entfernt.`)) return;
     state.damages = [];
+    // revoke all object URLs to free memory, then clear the map
+    for (const ph of state.photos.values()) {
+      if (ph?.objectUrl) URL.revokeObjectURL(ph.objectUrl);
+    }
     state.photos.clear();
     state.selectedDamageId = null;
-    saveAll();
+    try {
+      await Storage.clearAll();
+    } catch (e) {
+      console.warn('clearAll:', e);
+    }
     rebuildAllMarkers();
     renderDamageList();
     renderPartList();
@@ -1552,6 +1621,54 @@ function wireModal() {
 }
 
 // drag-drop a glTF/GLB anywhere
+// Updates the small status banner in the toolbar to tell the user
+// whether the app is fully cached and ready for offline use.
+async function updateOfflineStatus() {
+  const el = document.getElementById('offlineStatus');
+  if (!el) return;
+  const text = el.querySelector('.os-text');
+  const detail = el.querySelector('.os-detail');
+
+  if (!('serviceWorker' in navigator)) {
+    el.dataset.state = 'error';
+    text.textContent = 'Offline nicht unterstützt';
+    detail.textContent = '';
+    return;
+  }
+
+  // is a service worker active and controlling this page?
+  const reg = await navigator.serviceWorker.getRegistration();
+  const controllable = !!navigator.serviceWorker.controller;
+
+  if (!reg || !controllable) {
+    el.dataset.state = 'checking';
+    text.textContent = 'Wird vorbereitet…';
+    detail.textContent = navigator.onLine ? 'online' : 'offline';
+    return;
+  }
+
+  // estimate storage usage
+  let sizeNote = '';
+  try {
+    const est = await Storage.estimate();
+    if (est.usage) sizeNote = `${formatBytes(est.usage)} lokal`;
+  } catch {}
+
+  el.dataset.state = 'ready';
+  text.textContent = navigator.onLine ? 'Offline-bereit' : 'Offline-Modus';
+  detail.textContent = sizeNote;
+}
+
+function wireOfflineStatus() {
+  window.addEventListener('online',  updateOfflineStatus);
+  window.addEventListener('offline', updateOfflineStatus);
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', updateOfflineStatus);
+  }
+  // Also re-check periodically — e.g. after a photo is added storage usage changes
+  setInterval(updateOfflineStatus, 30 * 1000);
+}
+
 // Mobile drawer triggers — toolbar (left) and sidebar (right) become
 // slide-in panels under 900px. The backdrop closes whichever is open.
 function wireDrawers() {
@@ -1622,22 +1739,49 @@ function wireDragDrop() {
 // or texture files next to it.
 const DEFAULT_MODEL_CANDIDATES = ['./model.glb', './model.gltf'];
 
-loadAll();
-wireToolbar();
-wireModal();
-wireDragDrop();
-wireDrawers();
-renderPartList();
-renderDamageList();
-updatePlaceUI();
-
-setStatus(state.damages.length
-  ? `${state.damages.length} Schäden aus localStorage geladen.`
-  : 'Bereit. Suche Standardmodell …');
-
-// Try to auto-load a default model from the same directory.
-// If none exists, the empty-state stays visible.
+// One async IIFE so we can await Storage.init() before anything else.
 (async () => {
+  // Storage init handles: opening IndexedDB, migrating from old
+  // localStorage if present, requesting persistent storage permission.
+  try {
+    await Storage.init();
+  } catch (err) {
+    console.warn('[init] Storage.init failed:', err);
+    setStatus('Lokaler Speicher nicht verfügbar — Daten gehen beim Schließen verloren.');
+  }
+
+  // Pull saved damages + photo handles into memory
+  await loadState();
+
+  wireToolbar();
+  wireModal();
+  wireDragDrop();
+  wireDrawers();
+  wireOfflineStatus();
+  renderPartList();
+  renderDamageList();
+  updatePlaceUI();
+  updateOfflineStatus();
+
+  setStatus(state.damages.length
+    ? `${state.damages.length} Schäden geladen.`
+    : 'Bereit. Suche Standardmodell …');
+
+  // Service worker registration — this is what makes the app work
+  // offline. If we're served via file:// or it's not supported,
+  // it just no-ops.
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js');
+      console.info('[sw] registered:', reg.scope);
+      // Once ready, refresh the status banner
+      navigator.serviceWorker.ready.then(updateOfflineStatus);
+    } catch (err) {
+      console.warn('[sw] register failed:', err);
+    }
+  }
+
+  // Auto-load default model
   for (const url of DEFAULT_MODEL_CANDIDATES) {
     const ok = await loadGltfFromUrl(url);
     if (ok) return;
