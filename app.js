@@ -587,7 +587,7 @@ function installPointcloud(geometry) {
 // change this. -π/2 handles standard Rhino-Z-up to Three-Y-up.
 // Other useful values:  0  (no rotation),  Math.PI / 2  (other way),
 // Math.PI  (flipped — model is upside down).
-const PC_ROTATION_X = Math.PI / 2;
+const PC_ROTATION_X = - Math.PI / 2;
 
 function frameOnPointcloud() {
   if (!state.pointcloud) return;
