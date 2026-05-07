@@ -89,7 +89,7 @@ const state = {
   filterPartId:     '',
   damageQuery:      '',
   partQuery:        '',
-  xray:             false,
+  xray:             true,
   markersVisible:   true,
   targetCursor:     null,            // {partId, point, normal} or null
 
@@ -962,7 +962,7 @@ function saveAll() {
 function buildExportObject() {
   return {
     schemaVersion: 1,
-    generator: 'Damage Inspector',
+    generator: 'Fritz-Pflaum-Hütte',
     exportedAt: new Date().toISOString(),
     model: state.modelMeta,
     damages: state.damages.map((d) => ({
