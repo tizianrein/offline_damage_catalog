@@ -486,12 +486,21 @@ function applyHeightRampColors(geometry) {
   const n = positions.count;
   const colors = new Float32Array(n * 3);
 
-  // find Y range
+  // We want the colour ramp to follow *visual* height (world Y),
+  // not the raw Y from the buffer — those don't match if the
+  // pointcloud is rotated to fix up Z-up vs Y-up. So we transform
+  // each point with the current world matrix before reading Y.
+  const worldMatrix = state.pointcloud
+    ? state.pointcloud.matrixWorld
+    : new THREE.Matrix4();
+  const v = new THREE.Vector3();
+
+  // find Y range in world space
   let minY = Infinity, maxY = -Infinity;
   for (let i = 0; i < n; i++) {
-    const y = positions.getY(i);
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+    v.fromBufferAttribute(positions, i).applyMatrix4(worldMatrix);
+    if (v.y < minY) minY = v.y;
+    if (v.y > maxY) maxY = v.y;
   }
   const range = Math.max(1e-6, maxY - minY);
 
@@ -499,7 +508,8 @@ function applyHeightRampColors(geometry) {
   const c2 = new THREE.Color(0xd9b15a); // warm yellow
   const tmp = new THREE.Color();
   for (let i = 0; i < n; i++) {
-    const t = (positions.getY(i) - minY) / range;
+    v.fromBufferAttribute(positions, i).applyMatrix4(worldMatrix);
+    const t = (v.y - minY) / range;
     tmp.copy(c1).lerp(c2, t);
     colors[i * 3]     = tmp.r;
     colors[i * 3 + 1] = tmp.g;
@@ -577,7 +587,7 @@ function installPointcloud(geometry) {
 // change this. -π/2 handles standard Rhino-Z-up to Three-Y-up.
 // Other useful values:  0  (no rotation),  Math.PI / 2  (other way),
 // Math.PI  (flipped — model is upside down).
-const PC_ROTATION_X = -Math.PI / 2;
+const PC_ROTATION_X = Math.PI / 2;
 
 function frameOnPointcloud() {
   if (!state.pointcloud) return;
@@ -605,6 +615,9 @@ function setPointcloudColorMode(mode) {
   const geom = state.pointcloud.geometry;
   // If we're going back to RGB after a height ramp, restore colours
   if (mode === 'rgb') restoreOriginalColors(geom);
+  // Make sure the world matrix reflects the current rotation before
+  // we sample world-Y for the height ramp.
+  state.pointcloud.updateMatrixWorld(true);
   state.pointcloud.material.dispose();
   state.pointcloud.material = makePointcloudMaterial(geom);
 }
