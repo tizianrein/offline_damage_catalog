@@ -553,6 +553,12 @@ function installPointcloud(geometry) {
   points.renderOrder = -1;
   points.visible = state.pointcloudVisible;
 
+  // Coordinate system fix: Rhino is Z-up, Three.js / glTF is Y-up.
+  // Rotating -90° around X swaps them so a point that was "high" (z=high)
+  // in Rhino lands at "high" (y=high) here. If your scan still looks wrong
+  // after this, see PC_ROTATION_X below.
+  points.rotation.x = PC_ROTATION_X;
+
   scene.add(points);
   state.pointcloud = points;
 
@@ -566,6 +572,12 @@ function installPointcloud(geometry) {
   // user actually sees something.
   if (!state.modelRoot) frameOnPointcloud();
 }
+
+// If the cloud lands sideways or upside down relative to the model,
+// change this. -π/2 handles standard Rhino-Z-up to Three-Y-up.
+// Other useful values:  0  (no rotation),  Math.PI / 2  (other way),
+// Math.PI  (flipped — model is upside down).
+const PC_ROTATION_X = -Math.PI / 2;
 
 function frameOnPointcloud() {
   if (!state.pointcloud) return;
