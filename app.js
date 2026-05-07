@@ -339,6 +339,8 @@ function installModel(rootIn, fileName) {
 
   scene.add(rootIn);
 
+  setXRay(state.xray);
+
   // frame the model
   const bbox = new THREE.Box3().setFromObject(rootIn);
   frameBox(bbox);
