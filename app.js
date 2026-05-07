@@ -422,12 +422,12 @@ function autoPointSize() {
   if (state.modelRoot) {
     const bbox = new THREE.Box3().setFromObject(state.modelRoot);
     const size = bbox.getSize(new THREE.Vector3());
-    return Math.max(size.x, size.y, size.z) * 0.0015;
+    return Math.max(size.x, size.y, size.z) * 0.003;
   }
   if (state.pointcloud) {
     const bbox = new THREE.Box3().setFromObject(state.pointcloud);
     const size = bbox.getSize(new THREE.Vector3());
-    return Math.max(size.x, size.y, size.z) * 0.0015;
+    return Math.max(size.x, size.y, size.z) * 0.003;
   }
   return 0.005;
 }
