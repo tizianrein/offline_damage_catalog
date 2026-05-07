@@ -281,6 +281,47 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
 }
 .toggle input { accent-color: var(--accent); }
 
+/* Segmented control for color modes */
+.seg {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--line);
+  margin-top: 2px;
+}
+.seg-btn {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 7px 4px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--line);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.seg-btn:last-child { border-right: none; }
+.seg-btn:hover  { background: var(--bg-soft); }
+.seg-btn.active { background: var(--ink); color: var(--bg); }
+
+/* Inline slider with label */
+.slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 /* ==============================================================
    Viewer (center)
    ============================================================== */

@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import JSZip from 'jszip';
 import { Storage } from './storage.js';
@@ -93,6 +94,12 @@ const state = {
   markersVisible:   true,
   targetCursor:     null,            // {partId, point, normal} or null
 
+  // pointcloud
+  pointcloud:       null,            // THREE.Points or null
+  pointcloudVisible: true,
+  pointcloudColorMode: 'rgb',        // 'rgb' | 'gray' | 'height'
+  pointcloudSize:   1.0,             // multiplier on auto-computed size
+
   // marker meshes (id -> Mesh, parented to the corresponding part)
   markerMeshes: new Map(),
 };
@@ -119,6 +126,12 @@ const dom = {
 
   markersToggle:  $('markersToggle'),
   xrayToggle:     $('xrayToggle'),
+
+  // pointcloud
+  pointcloudControls: $('pointcloudControls'),
+  pointcloudToggle:   $('pointcloudToggle'),
+  pcColorMode:        $('pcColorMode'),
+  pcSizeSlider:       $('pcSizeSlider'),
 
   // modal
   modal:          $('damageModal'),
@@ -394,6 +407,200 @@ function disposeHierarchy(root) {
       mats.forEach((m) => m && m.dispose && m.dispose());
     }
   });
+}
+
+// ---------------------------------------------------------------
+// 3b. Pointcloud (.ply) — optional overlay layer
+// ---------------------------------------------------------------
+
+const plyLoader = new PLYLoader();
+
+// Picks an automatic point size based on the model's bounding-box size.
+// Without this, points are either invisible specks or chunky blobs
+// depending on whether your scan is in meters, millimeters, or feet.
+function autoPointSize() {
+  if (state.modelRoot) {
+    const bbox = new THREE.Box3().setFromObject(state.modelRoot);
+    const size = bbox.getSize(new THREE.Vector3());
+    return Math.max(size.x, size.y, size.z) * 0.0015;
+  }
+  if (state.pointcloud) {
+    const bbox = new THREE.Box3().setFromObject(state.pointcloud);
+    const size = bbox.getSize(new THREE.Vector3());
+    return Math.max(size.x, size.y, size.z) * 0.0015;
+  }
+  return 0.005;
+}
+
+// Build a fresh PointsMaterial respecting the current colour mode and
+// size multiplier. We rebuild rather than mutate so vertex-colors flips
+// don't leave stale buffers on the GPU.
+function makePointcloudMaterial(geometry) {
+  const mode = state.pointcloudColorMode;
+  const baseSize = autoPointSize() * state.pointcloudSize;
+
+  if (mode === 'rgb' && geometry.hasAttribute('color')) {
+    return new THREE.PointsMaterial({
+      size: baseSize,
+      sizeAttenuation: true,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+    });
+  }
+
+  if (mode === 'height') {
+    // Build a per-vertex colour ramp from low (deep blue) to high (warm yellow)
+    // based on Y. Stored on the geometry; we set vertexColors:true to use it.
+    applyHeightRampColors(geometry);
+    return new THREE.PointsMaterial({
+      size: baseSize,
+      sizeAttenuation: true,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+    });
+  }
+
+  // gray fallback (also used if scan has no colour)
+  return new THREE.PointsMaterial({
+    size: baseSize,
+    sizeAttenuation: true,
+    color: 0x888888,
+    transparent: true,
+    opacity: 0.55,
+  });
+}
+
+// Replaces the geometry's `color` buffer with a height ramp. Original
+// scan colours are kept in `color_orig` so we can restore them later.
+function applyHeightRampColors(geometry) {
+  const positions = geometry.getAttribute('position');
+  if (!positions) return;
+
+  // backup original RGB if present and not yet stashed
+  if (geometry.hasAttribute('color') && !geometry.userData._origColors) {
+    geometry.userData._origColors = geometry.getAttribute('color').clone();
+  }
+
+  const n = positions.count;
+  const colors = new Float32Array(n * 3);
+
+  // find Y range
+  let minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const y = positions.getY(i);
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const range = Math.max(1e-6, maxY - minY);
+
+  const c1 = new THREE.Color(0x223a6b); // deep blue
+  const c2 = new THREE.Color(0xd9b15a); // warm yellow
+  const tmp = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const t = (positions.getY(i) - minY) / range;
+    tmp.copy(c1).lerp(c2, t);
+    colors[i * 3]     = tmp.r;
+    colors[i * 3 + 1] = tmp.g;
+    colors[i * 3 + 2] = tmp.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+// Restore the original RGB colours that were stashed by the height ramp.
+function restoreOriginalColors(geometry) {
+  if (geometry.userData._origColors) {
+    geometry.setAttribute('color', geometry.userData._origColors);
+  }
+}
+
+async function loadPointcloudFromUrl(url) {
+  setStatus(`Lade Punktwolke …`);
+  return new Promise((resolve) => {
+    plyLoader.load(
+      url,
+      (geometry) => {
+        installPointcloud(geometry);
+        resolve(true);
+      },
+      undefined,
+      (err) => {
+        console.warn(`[loadPointcloud] ${url} failed:`, err?.message || err);
+        resolve(false);
+      },
+    );
+  });
+}
+
+function installPointcloud(geometry) {
+  // tear down old one if present
+  if (state.pointcloud) {
+    scene.remove(state.pointcloud);
+    state.pointcloud.geometry.dispose();
+    state.pointcloud.material.dispose();
+    state.pointcloud = null;
+  }
+
+  geometry.computeBoundingBox();
+  // Some PLY exports come with normals we don't need; keep memory tidy.
+  if (geometry.hasAttribute('normal')) geometry.deleteAttribute('normal');
+
+  const material = makePointcloudMaterial(geometry);
+  const points = new THREE.Points(geometry, material);
+  points.name = 'pointcloud';
+  // Render points behind the model so X-Ray reveal still feels right
+  points.renderOrder = -1;
+  points.visible = state.pointcloudVisible;
+
+  scene.add(points);
+  state.pointcloud = points;
+
+  // Reflect availability in the UI
+  if (dom.pointcloudControls) dom.pointcloudControls.hidden = false;
+
+  const count = geometry.getAttribute('position')?.count ?? 0;
+  setStatus(`Punktwolke geladen (${count.toLocaleString('de-DE')} Punkte).`);
+
+  // If no model is present yet, frame the camera on the cloud so the
+  // user actually sees something.
+  if (!state.modelRoot) frameOnPointcloud();
+}
+
+function frameOnPointcloud() {
+  if (!state.pointcloud) return;
+  const bbox = new THREE.Box3().setFromObject(state.pointcloud);
+  if (bbox.isEmpty()) return;
+  const center = bbox.getCenter(new THREE.Vector3());
+  const size = bbox.getSize(new THREE.Vector3()).length();
+  const dir = new THREE.Vector3(1, 0.6, 1).normalize();
+  camera.position.copy(center).add(dir.multiplyScalar(size * 0.9));
+  camera.near = Math.max(0.001, size * 0.001);
+  camera.far  = size * 10;
+  camera.updateProjectionMatrix();
+  controls.target.copy(center);
+  controls.update();
+}
+
+function setPointcloudVisible(v) {
+  state.pointcloudVisible = v;
+  if (state.pointcloud) state.pointcloud.visible = v;
+}
+
+function setPointcloudColorMode(mode) {
+  state.pointcloudColorMode = mode;
+  if (!state.pointcloud) return;
+  const geom = state.pointcloud.geometry;
+  // If we're going back to RGB after a height ramp, restore colours
+  if (mode === 'rgb') restoreOriginalColors(geom);
+  state.pointcloud.material.dispose();
+  state.pointcloud.material = makePointcloudMaterial(geom);
+}
+
+function setPointcloudSize(multiplier) {
+  state.pointcloudSize = multiplier;
+  if (!state.pointcloud) return;
+  state.pointcloud.material.size = autoPointSize() * multiplier;
 }
 
 // ---------------------------------------------------------------
@@ -1569,6 +1776,28 @@ function wireToolbar() {
   dom.markersToggle.addEventListener('change', () => setMarkersVisible(dom.markersToggle.checked));
   dom.xrayToggle.addEventListener('change', () => setXRay(dom.xrayToggle.checked));
 
+  // Pointcloud controls
+  if (dom.pointcloudToggle) {
+    dom.pointcloudToggle.addEventListener('change', () => {
+      setPointcloudVisible(dom.pointcloudToggle.checked);
+    });
+  }
+  if (dom.pcColorMode) {
+    dom.pcColorMode.addEventListener('click', (e) => {
+      const btn = e.target.closest('.seg-btn');
+      if (!btn) return;
+      // toggle active class
+      dom.pcColorMode.querySelectorAll('.seg-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      setPointcloudColorMode(btn.dataset.mode);
+    });
+  }
+  if (dom.pcSizeSlider) {
+    dom.pcSizeSlider.addEventListener('input', () => {
+      setPointcloudSize(parseFloat(dom.pcSizeSlider.value));
+    });
+  }
+
   dom.partSearch.addEventListener('input', () => {
     state.partQuery = dom.partSearch.value;
     renderPartList();
@@ -1796,15 +2025,31 @@ const DEFAULT_MODEL_CANDIDATES = ['./model.glb', './model.gltf'];
     }
   }
 
-  // Auto-load default model
-  for (const url of DEFAULT_MODEL_CANDIDATES) {
-    const ok = await loadGltfFromUrl(url);
-    if (ok) return;
+  // Auto-load default model + pointcloud in parallel.
+  // Pointcloud is independent — if there's no model, the cloud still
+  // loads; if there's no cloud, the model still loads.
+  const modelLoad = (async () => {
+    for (const url of DEFAULT_MODEL_CANDIDATES) {
+      const ok = await loadGltfFromUrl(url);
+      if (ok) return true;
+    }
+    return false;
+  })();
+
+  const pointcloudLoad = loadPointcloudFromUrl('./pointcloud.ply');
+
+  const [modelOk, pointcloudOk] = await Promise.all([modelLoad, pointcloudLoad]);
+
+  if (!modelOk && !state.modelRoot) {
+    console.info(
+      `[damage-inspector] No default model found. Tried: ${DEFAULT_MODEL_CANDIDATES.join(', ')}. ` +
+      `Place a glTF/GLB there to enable auto-load, or use the "glTF/GLB laden" button.`
+    );
+    if (!pointcloudOk) {
+      setStatus(`Kein Standardmodell (${DEFAULT_MODEL_CANDIDATES.map(s=>s.replace('./','')).join(' / ')}) gefunden — bitte manuell laden.`);
+    }
   }
-  if (state.modelRoot) return;
-  console.info(
-    `[damage-inspector] No default model found. Tried: ${DEFAULT_MODEL_CANDIDATES.join(', ')}. ` +
-    `Place a glTF/GLB there to enable auto-load, or use the "glTF/GLB laden" button.`
-  );
-  setStatus(`Kein Standardmodell (${DEFAULT_MODEL_CANDIDATES.map(s=>s.replace('./','')).join(' / ')}) gefunden — bitte manuell laden.`);
+  if (!pointcloudOk) {
+    console.info('[damage-inspector] No pointcloud.ply found — pointcloud overlay disabled.');
+  }
 })();
