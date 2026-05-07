@@ -846,7 +846,7 @@ function createDamage(data) {
   const dmg = {
     id:       newId(),
     partId:   data.partId,
-    type:     data.type     || 'scratch',
+    type:     data.type     || 'other',
     severity: data.severity || 3,
     text:     data.text     || '',
     point:    data.point,
@@ -1168,7 +1168,7 @@ function openDamageEditor(opts) {
     };
     dom.modalEyebrow.textContent = 'Neuer Schaden';
     dom.modalTitle.textContent   = 'Schaden erfassen';
-    dom.modalType.value = 'scratch';
+    dom.modalType.value = 'other';
     dom.modalText.value = '';
     setSeverityUI(3);
     dom.modalDelete.hidden = true;
