@@ -71,11 +71,8 @@
     </div>
 
     <div class="tool-section" id="pointcloudControls" hidden>
-      <div class="tool-label">Punktwolke</div>
-      <label class="toggle">
-        <input type="checkbox" id="pointcloudToggle" checked />
-        <span>Sichtbar</span>
-      </label>
+      <div class="tool-label">Punktwolken</div>
+      <div class="pc-slots" id="pcSlots"><!-- generated --></div>
       <div class="seg" id="pcColorMode" role="tablist" aria-label="Färbung">
         <button type="button" data-mode="rgb"    class="seg-btn active">Original</button>
         <button type="button" data-mode="gray"   class="seg-btn">Grau</button>
@@ -131,7 +128,7 @@
     <div class="empty-overlay" id="emptyOverlay">
       <div class="empty-card">
         <div class="empty-icon">◐</div>
-        <h2>Kein Modell geladen. Vielleicht musst du nur kurz warten?</h2>
+        <h2>Kein Modell geladen! Bitte warte eventuell kurz.</h2>
         <p>Lade ein <code>.gltf</code> oder <code>.glb</code> mit benannten Nodes.<br/>
            Jeder Node-Name wird zu einer Part-ID.</p>
         <button class="btn primary" id="loadGltfBtn2">glTF / GLB laden</button>

@@ -94,11 +94,12 @@ const state = {
   markersVisible:   true,
   targetCursor:     null,            // {partId, point, normal} or null
 
-  // pointcloud
-  pointcloud:       null,            // THREE.Points or null
-  pointcloudVisible: true,
-  pointcloudColorMode: 'rgb',        // 'rgb' | 'gray' | 'height'
-  pointcloudSize:   1.0,             // multiplier on auto-computed size
+  // pointclouds — slot id -> { points: THREE.Points, visible: bool, label }
+  // Slots are defined statically below in POINTCLOUD_SLOTS so we can
+  // auto-discover files in the repo at startup.
+  pointclouds:         new Map(),
+  pointcloudColorMode: 'rgb',         // 'rgb' | 'gray' | 'height' — global
+  pointcloudSize:      1.0,           // multiplier on auto-computed size — global
 
   // marker meshes (id -> Mesh, parented to the corresponding part)
   markerMeshes: new Map(),
@@ -129,7 +130,7 @@ const dom = {
 
   // pointcloud
   pointcloudControls: $('pointcloudControls'),
-  pointcloudToggle:   $('pointcloudToggle'),
+  pcSlots:            $('pcSlots'),
   pcColorMode:        $('pcColorMode'),
   pcSizeSlider:       $('pcSizeSlider'),
 
@@ -415,19 +416,40 @@ function disposeHierarchy(root) {
 
 const plyLoader = new PLYLoader();
 
+// Static slot list. Each slot maps to a fixed file in the repo.
+// To add another floor/zone, add an entry here, drop the file in the
+// repo, and add a checkbox in index.html (see toolbar section).
+// Order = display order in the UI.
+const POINTCLOUD_SLOTS = [
+  { id: 'outside', file: './pointcloud_outside.ply', label: 'Außen',           defaultVisible: true  },
+  { id: 'floor_0', file: './pointcloud_floor_0.ply', label: 'Innen — EG',      defaultVisible: false },
+  { id: 'floor_1', file: './pointcloud_floor_1.ply', label: 'Innen — OG',      defaultVisible: false },
+];
+
+// Backwards-compat: if the user still has the old pointcloud.ply
+// without slot suffix, treat it as the "outside" slot.
+const POINTCLOUD_LEGACY_FILE = './pointcloud.ply';
+
 // Picks an automatic point size based on the model's bounding-box size.
 // Without this, points are either invisible specks or chunky blobs
 // depending on whether your scan is in meters, millimeters, or feet.
 function autoPointSize() {
+  // Prefer the model's bounds — they're stable and already framed for.
   if (state.modelRoot) {
     const bbox = new THREE.Box3().setFromObject(state.modelRoot);
     const size = bbox.getSize(new THREE.Vector3());
     return Math.max(size.x, size.y, size.z) * 0.003;
   }
-  if (state.pointcloud) {
-    const bbox = new THREE.Box3().setFromObject(state.pointcloud);
-    const size = bbox.getSize(new THREE.Vector3());
-    return Math.max(size.x, size.y, size.z) * 0.003;
+  // Fall back to combined extent of all loaded pointclouds.
+  if (state.pointclouds.size > 0) {
+    const bbox = new THREE.Box3();
+    for (const entry of state.pointclouds.values()) {
+      bbox.expandByObject(entry.points);
+    }
+    if (!bbox.isEmpty()) {
+      const size = bbox.getSize(new THREE.Vector3());
+      return Math.max(size.x, size.y, size.z) * 0.003;
+    }
   }
   return 0.005;
 }
@@ -435,7 +457,7 @@ function autoPointSize() {
 // Build a fresh PointsMaterial respecting the current colour mode and
 // size multiplier. We rebuild rather than mutate so vertex-colors flips
 // don't leave stale buffers on the GPU.
-function makePointcloudMaterial(geometry) {
+function makePointcloudMaterial(geometry, points) {
   const mode = state.pointcloudColorMode;
   const baseSize = autoPointSize() * state.pointcloudSize;
 
@@ -451,8 +473,8 @@ function makePointcloudMaterial(geometry) {
 
   if (mode === 'height') {
     // Build a per-vertex colour ramp from low (deep blue) to high (warm yellow)
-    // based on Y. Stored on the geometry; we set vertexColors:true to use it.
-    applyHeightRampColors(geometry);
+    // based on world Y. Stored on the geometry; vertexColors:true uses it.
+    applyHeightRampColors(geometry, points);
     return new THREE.PointsMaterial({
       size: baseSize,
       sizeAttenuation: true,
@@ -474,7 +496,7 @@ function makePointcloudMaterial(geometry) {
 
 // Replaces the geometry's `color` buffer with a height ramp. Original
 // scan colours are kept in `color_orig` so we can restore them later.
-function applyHeightRampColors(geometry) {
+function applyHeightRampColors(geometry, points) {
   const positions = geometry.getAttribute('position');
   if (!positions) return;
 
@@ -490,9 +512,7 @@ function applyHeightRampColors(geometry) {
   // not the raw Y from the buffer — those don't match if the
   // pointcloud is rotated to fix up Z-up vs Y-up. So we transform
   // each point with the current world matrix before reading Y.
-  const worldMatrix = state.pointcloud
-    ? state.pointcloud.matrixWorld
-    : new THREE.Matrix4();
+  const worldMatrix = points ? points.matrixWorld : new THREE.Matrix4();
   const v = new THREE.Vector3();
 
   // find Y range in world space
@@ -504,8 +524,8 @@ function applyHeightRampColors(geometry) {
   }
   const range = Math.max(1e-6, maxY - minY);
 
-  const c1 = new THREE.Color(0x39ff14); // neon green
-  const c2 = new THREE.Color(0xff6a00); // strong orange
+  const c1 = new THREE.Color(0x223a6b); // deep blue
+  const c2 = new THREE.Color(0xd9b15a); // warm yellow
   const tmp = new THREE.Color();
   for (let i = 0; i < n; i++) {
     v.fromBufferAttribute(positions, i).applyMatrix4(worldMatrix);
@@ -525,73 +545,81 @@ function restoreOriginalColors(geometry) {
   }
 }
 
-async function loadPointcloudFromUrl(url) {
-  setStatus(`Lade Punktwolke …`);
+async function loadPointcloudSlot(slot) {
   return new Promise((resolve) => {
     plyLoader.load(
-      url,
+      slot.file,
       (geometry) => {
-        installPointcloud(geometry);
+        installPointcloudIntoSlot(geometry, slot);
         resolve(true);
       },
       undefined,
       (err) => {
-        console.warn(`[loadPointcloud] ${url} failed:`, err?.message || err);
+        console.warn(`[loadPointcloud] ${slot.file} failed:`, err?.message || err);
         resolve(false);
       },
     );
   });
 }
 
-function installPointcloud(geometry) {
-  // tear down old one if present
-  if (state.pointcloud) {
-    scene.remove(state.pointcloud);
-    state.pointcloud.geometry.dispose();
-    state.pointcloud.material.dispose();
-    state.pointcloud = null;
+function installPointcloudIntoSlot(geometry, slot) {
+  // tear down any existing entry in this slot
+  const existing = state.pointclouds.get(slot.id);
+  if (existing) {
+    scene.remove(existing.points);
+    existing.points.geometry.dispose();
+    existing.points.material.dispose();
+    state.pointclouds.delete(slot.id);
   }
 
   geometry.computeBoundingBox();
   // Some PLY exports come with normals we don't need; keep memory tidy.
   if (geometry.hasAttribute('normal')) geometry.deleteAttribute('normal');
 
-  const material = makePointcloudMaterial(geometry);
-  const points = new THREE.Points(geometry, material);
-  points.name = 'pointcloud';
-  // Render points behind the model so X-Ray reveal still feels right
+  // Build with a temporary material first so we have a Points object
+  // whose matrixWorld reflects the rotation. Then rebuild the real
+  // material — this lets the height-ramp mode read correct world Y.
+  const points = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 1 }));
+  points.name = `pointcloud_${slot.id}`;
   points.renderOrder = -1;
-  points.visible = state.pointcloudVisible;
 
   // Coordinate system fix: Rhino is Z-up, Three.js / glTF is Y-up.
-  // Rotating -90° around X swaps them so a point that was "high" (z=high)
-  // in Rhino lands at "high" (y=high) here. If your scan still looks wrong
-  // after this, see PC_ROTATION_X below.
   points.rotation.x = PC_ROTATION_X;
+  points.updateMatrixWorld(true);
+
+  // Now build the real material (which may sample world Y)
+  points.material.dispose();
+  points.material = makePointcloudMaterial(geometry, points);
+
+  // Default visibility from the slot definition
+  points.visible = !!slot.defaultVisible;
 
   scene.add(points);
-  state.pointcloud = points;
-
-  // Reflect availability in the UI
-  if (dom.pointcloudControls) dom.pointcloudControls.hidden = false;
+  state.pointclouds.set(slot.id, {
+    points,
+    visible: !!slot.defaultVisible,
+    label: slot.label,
+  });
 
   const count = geometry.getAttribute('position')?.count ?? 0;
-  setStatus(`Punktwolke geladen (${count.toLocaleString('de-DE')} Punkte).`);
+  console.info(`[pointcloud] ${slot.label}: ${count.toLocaleString('de-DE')} Punkte`);
 
-  // If no model is present yet, frame the camera on the cloud so the
-  // user actually sees something.
-  if (!state.modelRoot) frameOnPointcloud();
+  // If no model is loaded yet, frame on whichever cloud we have so far
+  if (!state.modelRoot) frameOnAllPointclouds();
 }
 
 // If the cloud lands sideways or upside down relative to the model,
 // change this. -π/2 handles standard Rhino-Z-up to Three-Y-up.
 // Other useful values:  0  (no rotation),  Math.PI / 2  (other way),
 // Math.PI  (flipped — model is upside down).
-const PC_ROTATION_X = - Math.PI / 2;
+const PC_ROTATION_X = -Math.PI / 2;
 
-function frameOnPointcloud() {
-  if (!state.pointcloud) return;
-  const bbox = new THREE.Box3().setFromObject(state.pointcloud);
+function frameOnAllPointclouds() {
+  if (state.pointclouds.size === 0) return;
+  const bbox = new THREE.Box3();
+  for (const entry of state.pointclouds.values()) {
+    bbox.expandByObject(entry.points);
+  }
   if (bbox.isEmpty()) return;
   const center = bbox.getCenter(new THREE.Vector3());
   const size = bbox.getSize(new THREE.Vector3()).length();
@@ -604,28 +632,61 @@ function frameOnPointcloud() {
   controls.update();
 }
 
-function setPointcloudVisible(v) {
-  state.pointcloudVisible = v;
-  if (state.pointcloud) state.pointcloud.visible = v;
+function setPointcloudSlotVisible(slotId, v) {
+  const entry = state.pointclouds.get(slotId);
+  if (!entry) return;
+  entry.visible = v;
+  entry.points.visible = v;
+}
+
+// Build the list of slot toggles based on which slots actually loaded.
+// Hides the whole pointcloud panel if nothing is loaded.
+function refreshPointcloudControls() {
+  if (!dom.pointcloudControls || !dom.pcSlots) return;
+  if (state.pointclouds.size === 0) {
+    dom.pointcloudControls.hidden = true;
+    return;
+  }
+  dom.pointcloudControls.hidden = false;
+  dom.pcSlots.innerHTML = '';
+
+  // Render in the order defined by POINTCLOUD_SLOTS, but only those
+  // that actually loaded (so missing files don't leave dead toggles).
+  for (const slot of POINTCLOUD_SLOTS) {
+    const entry = state.pointclouds.get(slot.id);
+    if (!entry) continue;
+    const label = document.createElement('label');
+    label.className = 'toggle';
+    label.innerHTML = `
+      <input type="checkbox" data-slot="${slot.id}" ${entry.visible ? 'checked' : ''} />
+      <span>${slot.label}</span>
+    `;
+    label.querySelector('input').addEventListener('change', (e) => {
+      setPointcloudSlotVisible(slot.id, e.target.checked);
+    });
+    dom.pcSlots.appendChild(label);
+  }
 }
 
 function setPointcloudColorMode(mode) {
   state.pointcloudColorMode = mode;
-  if (!state.pointcloud) return;
-  const geom = state.pointcloud.geometry;
-  // If we're going back to RGB after a height ramp, restore colours
-  if (mode === 'rgb') restoreOriginalColors(geom);
-  // Make sure the world matrix reflects the current rotation before
-  // we sample world-Y for the height ramp.
-  state.pointcloud.updateMatrixWorld(true);
-  state.pointcloud.material.dispose();
-  state.pointcloud.material = makePointcloudMaterial(geom);
+  for (const entry of state.pointclouds.values()) {
+    const geom = entry.points.geometry;
+    if (mode === 'rgb') restoreOriginalColors(geom);
+    // Make sure the world matrix reflects the current rotation before
+    // we sample world-Y for the height ramp.
+    entry.points.updateMatrixWorld(true);
+    entry.points.material.dispose();
+    entry.points.material = makePointcloudMaterial(geom, entry.points);
+  }
 }
 
 function setPointcloudSize(multiplier) {
   state.pointcloudSize = multiplier;
-  if (!state.pointcloud) return;
-  state.pointcloud.material.size = autoPointSize() * multiplier;
+  const newSize = autoPointSize() * multiplier;
+  for (const entry of state.pointclouds.values()) {
+    entry.points.material.size = newSize;
+  }
 }
 
 // ---------------------------------------------------------------
@@ -1801,17 +1862,13 @@ function wireToolbar() {
   dom.markersToggle.addEventListener('change', () => setMarkersVisible(dom.markersToggle.checked));
   dom.xrayToggle.addEventListener('change', () => setXRay(dom.xrayToggle.checked));
 
-  // Pointcloud controls
-  if (dom.pointcloudToggle) {
-    dom.pointcloudToggle.addEventListener('change', () => {
-      setPointcloudVisible(dom.pointcloudToggle.checked);
-    });
-  }
+  // Pointcloud controls. The per-slot visibility checkboxes are wired
+  // up in refreshPointcloudControls() because they're generated
+  // dynamically from POINTCLOUD_SLOTS.
   if (dom.pcColorMode) {
     dom.pcColorMode.addEventListener('click', (e) => {
       const btn = e.target.closest('.seg-btn');
       if (!btn) return;
-      // toggle active class
       dom.pcColorMode.querySelectorAll('.seg-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       setPointcloudColorMode(btn.dataset.mode);
@@ -2061,20 +2118,39 @@ const DEFAULT_MODEL_CANDIDATES = ['./model.glb', './model.gltf'];
     return false;
   })();
 
-  const pointcloudLoad = loadPointcloudFromUrl('./pointcloud.ply');
+  // Try to load each declared pointcloud slot. Slots that don't have
+  // a file in the repo just stay empty — that's fine.
+  const slotLoads = POINTCLOUD_SLOTS.map((slot) => loadPointcloudSlot(slot));
 
-  const [modelOk, pointcloudOk] = await Promise.all([modelLoad, pointcloudLoad]);
+  // Backwards compat: if neither outside slot file nor any other slot
+  // loaded, fall back to the legacy `pointcloud.ply` filename and treat
+  // it as the outside slot.
+  const slotResults = await Promise.all(slotLoads);
+  const anyPointcloudLoaded = slotResults.some(Boolean);
+
+  if (!anyPointcloudLoaded) {
+    const legacySlot = { ...POINTCLOUD_SLOTS[0], file: POINTCLOUD_LEGACY_FILE };
+    const ok = await loadPointcloudSlot(legacySlot);
+    if (ok) console.info('[pointcloud] Loaded legacy pointcloud.ply as outside slot.');
+  }
+
+  // Reflect everything in the UI
+  refreshPointcloudControls();
+
+  const modelOk = await modelLoad;
 
   if (!modelOk && !state.modelRoot) {
     console.info(
       `[damage-inspector] No default model found. Tried: ${DEFAULT_MODEL_CANDIDATES.join(', ')}. ` +
       `Place a glTF/GLB there to enable auto-load, or use the "glTF/GLB laden" button.`
     );
-    if (!pointcloudOk) {
+    if (state.pointclouds.size === 0) {
       setStatus(`Kein Standardmodell (${DEFAULT_MODEL_CANDIDATES.map(s=>s.replace('./','')).join(' / ')}) gefunden — bitte manuell laden.`);
+    } else {
+      setStatus(`${state.pointclouds.size} Punktwolke(n) geladen.`);
     }
   }
-  if (!pointcloudOk) {
-    console.info('[damage-inspector] No pointcloud.ply found — pointcloud overlay disabled.');
+  if (state.pointclouds.size === 0) {
+    console.info('[damage-inspector] No pointcloud files found — overlay disabled.');
   }
 })();

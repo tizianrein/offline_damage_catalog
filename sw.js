@@ -12,7 +12,7 @@
  * happens to evict.
  * ============================================================= */
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `damage-inspector-${CACHE_VERSION}`;
 
 // Files we want guaranteed available offline. Paths are relative to
@@ -38,7 +38,12 @@ const PRECACHE_URLS = [
   // precache entry fails silently and the others still cache fine)
   './model.glb',
   './model.gltf',
+  // legacy single-pointcloud filename (still supported)
   './pointcloud.ply',
+  // multi-pointcloud slots
+  './pointcloud_outside.ply',
+  './pointcloud_floor_0.ply',
+  './pointcloud_floor_1.ply',
 ];
 
 self.addEventListener('install', (event) => {

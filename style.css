@@ -281,6 +281,13 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--sans); font-si
 }
 .toggle input { accent-color: var(--accent); }
 
+/* Pointcloud slot toggles — list of per-cloud checkboxes */
+.pc-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* Segmented control for color modes */
 .seg {
   display: flex;
