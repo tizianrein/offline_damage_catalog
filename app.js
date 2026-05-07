@@ -244,20 +244,12 @@ async function loadGltfFromFile(file) {
 async function loadGltfFromUrl(url, displayName) {
   const name = displayName || url.split('/').pop() || 'model';
   setStatus(`Lade ${name} …`);
-  try {
-    // probe first so a missing default model doesn't dump a stack trace
-    const head = await fetch(url, { method: 'HEAD' });
-    if (!head.ok) {
-      if (head.status === 404) return false;
-      throw new Error(`HTTP ${head.status}`);
-    }
-  } catch (err) {
-    // network or CORS — surface but don't crash
-    console.warn('HEAD probe failed:', err);
-    setStatus(`Modell ${name} nicht erreichbar.`);
-    return false;
-  }
 
+  // We used to do a HEAD-probe here to check if the file exists before
+  // calling gltfLoader.load — but that's a separate request which the
+  // Service Worker may not have cached, so it would falsely 404 in
+  // offline mode (especially on iOS Safari). Now we just try to load
+  // directly and let the loader's onError tell us if the file is gone.
   return new Promise((resolve) => {
     gltfLoader.load(
       url,
@@ -267,8 +259,11 @@ async function loadGltfFromUrl(url, displayName) {
       },
       undefined,
       (err) => {
-        console.error(err);
-        setStatus(`Fehler beim Laden von ${name}: ${err?.message || err}`);
+        // Distinguish "file genuinely not there" (404) from "actually broken".
+        // The Three.js loader doesn't expose status cleanly, so we just log
+        // and treat any failure as a soft miss — the empty state stays up
+        // and the user can load manually.
+        console.warn(`[loadGltfFromUrl] ${url} failed:`, err?.message || err);
         resolve(false);
       },
     );

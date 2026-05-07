@@ -12,7 +12,7 @@
  * happens to evict.
  * ============================================================= */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `damage-inspector-${CACHE_VERSION}`;
 
 // Files we want guaranteed available offline. Paths are relative to
@@ -31,7 +31,7 @@ const PRECACHE_URLS = [
   './vendor/three/examples/jsm/loaders/GLTFLoader.js',
   './vendor/three/examples/jsm/controls/OrbitControls.js',
   './vendor/three/examples/jsm/utils/BufferGeometryUtils.js',
-  './vendor/jszip/jszip.min.js',
+  './vendor/jszip/jszip.esm.js',
 
   // default model (best-effort — if neither exists, the precache step
   // for those URLs will fail silently because we use addAll(filtered))
